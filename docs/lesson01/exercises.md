@@ -1,16 +1,16 @@
-## 1.5: Exercises.
+## 1.5: 练习
 
-Exercises are optional, though I strongly recommend you to experiment with the source code a little bit. If you were able to complete any of the exercises - please share your source code with others. For details see the [contribution guide](../Contributions.md).
+练习是可选的，尽管我强烈建议您稍微尝试一下源代码. 如果您能够完成任何练习 - 请与他人分享您的源代码. 有关详细信息，请参见[contribution guide](../Contributions.md).
 
-1. Introduce a constant `baud_rate`, calculate necessary Mini UART register values using this constant. Make sure that the program can work using baud rates other than 115200.
-1. Change the OS code to use UART device instead of Mini UART. Use `BCM2837 ARM Peripherals` manual to figure out how to access UART registers and how to configure GPIO pins.
-1. Try to use all 4 processor cores. The OS should print `Hello, from processor <processor index>` for all of the cores. Don't forget to set up a separate stack for each core and make sure that Mini UART is initialized only once. You can use a combination of global variables and `delay` function for synchronization.
-1. Adapt lesson 01 to run on qemu. Check [this](https://github.com/s-matyukevich/raspberry-pi-os/issues/8) issue for reference.
+1. 引入一个常数`baud_rate`, 使用该常数计算必要的Mini UART寄存器值. 确保程序可以使用115200以外的波特率工作。
+2. 更改操作系统代码以使用UART设备代替Mini UART. 采用 `BCM2837 ARM Peripherals` 手册弄清楚如何访问UART寄存器以及如何配置GPIO引脚。
+3. 尝试使用所有4个处理器内核. 操作系统应打印 `Hello, from processor <processor index>` 对于不同核心. 不要忘记为每个内核设置单独的堆栈，并确保Mini UART仅初始化一次. 您可以结合使用全局变量和 `delay` 同步功能.
+4. 改编第01课以在qemu上运行. 查看 [这个](https://github.com/s-matyukevich/raspberry-pi-os/issues/8) issue以供参考.
 
-##### Previous Page
+##### 上一页
 
 1.4 [Kernel Initialization: Linux startup sequence](../../docs/lesson01/linux/kernel-startup.md)
 
-##### Next Page
+##### 下一页
 
 2.1 [Processor initialization: RPi OS](../../docs/lesson02/rpi-os.md)

@@ -1,4 +1,4 @@
-## 1.1: Introducing RPi OS, or bare-metal "Hello, World!"
+## 1.1: 引入RPi OS或裸机 “Hello，World！”
 
 我们将通过编写一个小的裸机“ Hello，World”应用程序开始我们的OS开发之旅。
 我假设您已通过[Prerequisites](../Prerequisites.md)并已准备就绪。如果没有，现在是时候这样做了。
@@ -7,7 +7,7 @@
 
 我想让您注意的另一件事是，该教程包含许多源代码示例。我通常会通过提供完整的代码块来开始说明，然后逐行描述它。
 
-### Project structure
+### 项目结构
 
 每节课的源代码具有相同的结构。
 您可以在[此处](https://github.com/s-matyukevich/raspberry-pi-os/tree/master/src/lesson01)找到本课程的源代码。
@@ -86,7 +86,7 @@ ASMOPS = -Iinclude
 * **-nostartfiles** 不要使用标准的启动文件。启动文件负责设置初始堆栈指针，初始化静态数据以及跳转到主入口点。我们将自己完成所有这一切。
 * **-ffreestanding** 独立环境(`ffreestanding`)是标准库不存在的环境, 并且程序启动入口不是主要的. 选项`-ffreestanding`指示编译器不需要定义标准函数具有其通常的意义。
 * **-Iinclude** 在 `include` 文件夹中搜索头文件。
-* **-mgeneral-regs-only**. 仅使用通用寄存器。 ARM处理器还具有[NEON](https://developer.arm.com/technologies/neon)寄存器。 我们不希望编译器使用它们，因为它们会增加额外的复杂性(例如，因为我们需要在上下文切换期间存储寄存器)。
+* **-mgeneral-regs-only** 仅使用通用寄存器。 ARM处理器还具有[NEON](https://developer.arm.com/technologies/neon)寄存器。 我们不希望编译器使用它们，因为它们会增加额外的复杂性(例如，因为我们需要在上下文切换期间存储寄存器)。
 
 ```
 BUILD_DIR = build
@@ -175,7 +175,7 @@ SECTIONS
     通过将此类数据放在单独的部分中，编译器可以在ELF二进制文件中节省一些空间––只有部分大小存储在ELF标头中, 但本节本身被省略.
     将`img`加载到内存后, 我们必须将`.bss`部分初始化为`0`; 这就是为什么我们需要记录本节的开始和结束 (因此`bss_begin`和`bss_end`符号) 和 对齐该节，使其以8的倍数开头的地址开始. 如果该部分未对齐, 使用`str`指令在`bss`节的开头存储`0`会更加困难 因为`str`指令只能与8字节对齐的地址一起使用。
 
-### Booting the kernel
+### 引导内核
 
 现在是时候看看[boot.S]（https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson01/src/boot.S）文件了。
 
@@ -258,7 +258,7 @@ Raspberry Pi在地址0加载内核; 这就是为什么可以将初始堆栈指�
 
 [这](http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.den0024a/index.html) 是ARMv8-A开发人员指南. 如果你不熟悉ARM ISA，这是一个很好的资源. [这页](http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.den0024a/ch09s01s01.html) 特别概述了ABI中的寄存器使用约定。
 
-### The `kernel_main` function
+### `kernel_main`函数
 
 我们已经看到引导代码最终将控制权传递给了`kernel_main`函数。
 
@@ -281,7 +281,7 @@ void kernel_main(void)
 
 此功能是内核中最简单的功能之一. 它与 `Mini UART` 设备 打印到屏幕并阅读用户输入. 内核只是打印 `Hello, world!` 然后进入无限循环，此循环从用户读取字符并将其发送回屏幕.
 
-### Raspberry Pi devices 
+### Raspberry Pi 设备
 
 现在，我们将深入研究Raspberry Pi的特定功能. 开始之前, 我建议您下载[BCM2837 ARM Peripherals manual](https://github.com/raspberrypi/documentation/files/1888662/BCM2837-ARM-Peripherals.-.Revised.-.V2-1.pdf). `BCM2837` 是 Raspberry Pi 3 Model B 和 B+ 使用的板. 在我们讨论中, 我还将提到 `BCM2835` 和 `BCM2836` - 这些是旧版Raspberry Pi中使用的板子的名称.  
 
@@ -303,7 +303,7 @@ GPIO可用于配置不同GPIO引脚的行为。 例如，为了能够使用Mini 
 
 ![Raspberry Pi GPIO pin numbers](../../images/gpio-numbers.png)
 
-### Mini UART initialization
+### 迷你UART初始化
 
 现在让我们看一下如何初始化迷你UART. 
 
@@ -340,7 +340,7 @@ void uart_init ( void )
 
 在这里，我们使用两个函数`put32`和`get32`。 这些功能非常简单; 它们允许我们在32位寄存器中读写数据。 您可以看看它们是如何实现 [utils.S](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson01/src/utils.S). `uart_init` 是本课中最复杂，最重要的功能之一，我们将在接下来的三个部分中继续进行研究.
 
-#### GPIO alternative function selection 
+#### GPIO 另类功能选择
 
 首先，我们需要激活GPIO引脚. 大多数引脚可以与不同的设备一起使用, 所以在使用特定的针之前, 我们需要选择引脚的`替代功能(alternative function)`. 
 `替代功能`只是可以为每个引脚设置的0到5之间的数字，并配置将哪个设备连接到该引脚. 
@@ -378,25 +378,28 @@ void uart_init ( void )
 
 如果您使用特定的引脚作为输入，并且不将该引脚连接任何东西，则将无法识别该引脚的值是1还是0。 实际上，设备将报告为随机值。 上拉/下拉机制可解决此问题。 如果将引脚设置为上拉状态，但没有任何连接，则引脚将始终报告 `1`（对于下拉状态，该值始终为0）。 就我们而言, 我们既不需要上拉状态也不需要下拉状态, 因为14和15引脚将一直保持连接状态. 即使重新启动后，引脚状态也会保留，因此在使用任何引脚之前，我们总是必须初始化其状态。 有三种可用状态: 上拉，下拉和两者都不显示（以删除当前的上拉或下拉状态）, 我们需要第三个.
 
-Switching between pin states is not a very simple procedure because it requires physically toggling a switch on the electric circuit. This process involves the `GPPUD` and `GPPUDCLK` registers and is described on page 101 of the `BCM2837 ARM Peripherals` manual. I copied the description here:
+引脚状态之间的切换不是一个非常简单的过程，因为它需要物理上触发电路上的一个开关。 该过程涉及`GPPUD`和`GPPUDCLK`寄存器，并在 `BCM2837 ARM Peripherals` 手册的第101页中进行了描述。 
+
+我在这里复制了一段说明：
 
 ```
-The GPIO Pull-up/down Clock Registers control the actuation of internal pull-downs on
-the respective GPIO pins. These registers must be used in conjunction with the GPPUD
-register to effect GPIO Pull-up/down changes. The following sequence of events is
-required:
-1. Write to GPPUD to set the required control signal (i.e. Pull-up or Pull-Down or neither
-to remove the current Pull-up/down)
-2. Wait 150 cycles – this provides the required set-up time for the control signal
-3. Write to GPPUDCLK0/1 to clock the control signal into the GPIO pads you wish to
-modify – NOTE only the pads which receive a clock will be modified, all others will
-retain their previous state.
-4. Wait 150 cycles – this provides the required hold time for the control signal
-5. Write to GPPUD to remove the control signal
-6. Write to GPPUDCLK0/1 to remove the clock
+GPIO上/下时钟寄存器控制相应GPIO引脚上内部下拉的启动。
+这些寄存器必须与GPPUD结合使用
+寄存器以影响GPIO上拉/下拉更改。
+
+需要以下事件顺序：
+
+1.写入GPPUD以设置所需的控制信号（即上拉或下拉，或都不设置以消除当前的上拉/下拉）
+2.等待150个周期 – 这为控制信号提供了所需的建立时间
+3. 写入 GPPUDCLK0/1 以将控制信号输入您要修改的GPIO焊盘 – 注意只有接收时钟的打击垫会被修改, 所有其他人将保持以前的状态.
+4. 等待150个循环 – 这为控制信号提供了所需的保持时间
+5. 写入GPPUD以删除控制信号
+6. 写入 GPPUDCLK0/1 以删除时钟
 ``` 
 
-This procedure describes how we can remove both the pull-up and pull-down states from a pin, which is what we are doing for pins 14 and 15 in the following code:
+此过程描述了我们如何从引脚上移除上拉和下拉状态
+
+在下面的代码中，我们对引脚14和15进行操作：
 
 ```
     put32(GPPUD,0);
@@ -406,9 +409,10 @@ This procedure describes how we can remove both the pull-up and pull-down states
     put32(GPPUDCLK0,0);
 ```
 
-#### Initializing the Mini UART
+#### 初始化Mini UART
 
-Now our Mini UART is connected to the GPIO pins, and the pins are configured. The rest of the `uart_init` function is dedicated to Mini UART initialization. 
+现在我们的Mini UART已连接到GPIO引脚，并且已配置了这些引脚。
+`uart_init`函数的其余部分专用于Mini UART初始化。
 
 ```
     put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
@@ -421,50 +425,60 @@ Now our Mini UART is connected to the GPIO pins, and the pins are configured. Th
 
     put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
 ```
-Let's examine this code snippet line by line. 
+让我们逐行检查此代码段。
 
 ```
     put32(AUX_ENABLES,1);                   //Enable mini uart (this also enables access to its registers)
 ```
-This line enables the Mini UART. We must do this in the beginning, because this also enables access to all the other Mini UART registers.
+
+这行使能Mini UART. 我们必须在一开始就这样做, 因为这样还可以访问所有其他 Mini UART 寄存器。
 
 ```
     put32(AUX_MU_CNTL_REG,0);               //Disable auto flow control and disable receiver and transmitter (for now)
 ```
-Here we disable the receiver and transmitter before the configuration is finished. We also permanently disable auto-flow control because it requires us to use additional GPIO pins, and the TTL-to-serial cable doesn't support it. For more information about auto-flow control, you can refer to [this](http://www.deater.net/weave/vmwprod/hardware/pi-rts/) article.
+
+在这里，我们在配置完成之前禁用接收器和发送器。 我们还永久禁用自动流控制，因为它需要我们使用其他GPIO引脚, TTL转串口电缆不支持. 有关自动流控制的更多信息, 你可以参考 [这](http://www.deater.net/weave/vmwprod/hardware/pi-rts/) 篇文章.
 
 ```
     put32(AUX_MU_IER_REG,0);                //Disable receive and transmit interrupts
 ```
-It is possible to configure the Mini UART to generate a processor interrupt each time new data is available. We are going to start working with interrupts in lesson 3, so for now, we will just disable this feature.
+可以配置Mini UART，以在每次有新数据可用时产生处理器中断。 我们将在第3课中开始处理中断, 所以现在, 我们将禁用此功能。
 
 ```
     put32(AUX_MU_LCR_REG,3);                //Enable 8 bit mode
 ```
-Mini UART can support either 7- or 8-bit operations. This is because an ASCII character is 7 bits for the standard set and 8 bits for the extended. We are going to use 8-bit mode. 
+
+迷你UART可以支持7位或8位操作. 这是因为ASCII字符对于标准集是7位，对于扩展是8位。 我们将使用8位模式。
 
 ```
     put32(AUX_MU_MCR_REG,0);                //Set RTS line to be always high
 ```
-The RTS line is used in the flow control and we don't need it. Set it to be high all the time.
+
+RTS线用于流量控制，我们不需要它。 始终将其设置为高。
+
 ```
     put32(AUX_MU_BAUD_REG,270);             //Set baud rate to 115200
 ```
-The baud rate is the rate at which information is transferred in a communication channel. “115200 baud” means that the serial port is capable of transferring a maximum of 115200 bits per second. The baud rate of your Raspberry Pi mini UART device should be the same as the baud rate in your terminal emulator. 
-The Mini UART calculates baud rate according to the following equation:
+
+波特率是在通信信道中传输信息的速率. `115200 波特` 表示该串行端口每秒最多可传输115200位. Raspberry Pi微型UART设备的波特率应与终端仿真器中的波特率相同。
+
+Mini UART根据以下公式计算波特率:
+
 ```
 baudrate = system_clock_freq / (8 * ( baudrate_reg + 1 )) 
 ```
-The `system_clock_freq` is 250 MHz, so we can easily calculate the value of `baudrate_reg` as 270.
+
+`system_clock_freq`是250 MHz, 这样我们就可以轻松计算出 `baudrate_reg` 是 270.
 
 ``` 
     put32(AUX_MU_CNTL_REG,3);               //Finally, enable transmitter and receiver
 ```
-After this line is executed, the Mini UART is ready for work!
 
-### Sending data using the Mini UART
+执行完此行后，Mini UART准备就绪！
 
-After the Mini UART is ready, we can try to use it to send and receive some data. To do this, we can use the following two functions:
+### 使用Mini UART发送数据
+
+Mini UART准备好后, 我们可以尝试使用它来发送和接收一些数据. 为此，我们可以使用以下两个功能：
 
 ```
 void uart_send ( char c )
@@ -486,10 +500,11 @@ char uart_recv ( void )
 }
 ```
 
-Both of the functions start with an infinite loop, the purpose of which is to verify whether the device is ready to transmit or receive data. We are using  the `AUX_MU_LSR_REG` register to do this. Bit zero, if set to 1, indicates that the data is ready; this means that we can read from the UART. Bit five, if set to 1, tells us that the transmitter is empty, meaning that we can write to the UART.
-Next, we use `AUX_MU_IO_REG` to either store the value of the transmitted character or read the value of the received character.
+这两个功能均以无限循环开始，其目的是验证设备是否已准备好发送或接收数据。 我们正在使用 `AUX_MU_LSR_REG` 寄存器来执行此操作。零位, 如果设置为1, 表示数据已准备就绪; 这意味着我们可以从UART中读取. 位五, 如果设置为1, 告诉我们发射器是空的, 这意味着我们可以写入UART。
 
-We also have a very simple function that is capable of sending strings instead of characters:
+下一个, 我们使用`AUX_MU_IO_REG`来存储已发送字符的值或读取已接收字符的值.
+
+我们还有一个非常简单的功能，能够发送字符串而不是字符：
 
 ```
 void uart_send_string(char* str)
@@ -499,17 +514,19 @@ void uart_send_string(char* str)
     }
 }
 ```
-This function just iterates over all characters in a string and sends them one by one. 
 
-### Raspberry Pi config
+此函数仅遍历字符串中的所有字符，然后将它们一一发送。
 
-The Raspberry Pi startup sequence is the following (simplified):
+### Raspberry Pi 配置
 
-1. The device is powered on.
-1. The GPU starts up and reads the `config.txt` file from the boot partition. This file contains some configuration parameters that the GPU uses to further adjust the startup sequence.
-1. `kernel8.img` is loaded into memory and executed.
+Raspberry Pi的启动顺序如下（简化）:
 
-To be able to run our simple OS, the `config.txt` file should be the following:
+1. 设备上电。
+2. GPU启动并从启动分区读取`config.txt`文件. 该文件包含一些配置参数，GPU使用这些参数进一步调整启动顺序.
+3. `kernel8.img` 被加载到内存中并执行。
+
+为了能够运行我们的简单操作系统, `config.txt`文件应为以下文件:
+
 
 ```
 kernel_old=1
@@ -519,37 +536,39 @@ disable_commandline_tags=1
 * `disable_commandline_tags` instructs the GPU to not pass any command line arguments to the booted image.
 
 
-### Testing the kernel
+### 测试内核
 
-Now that we have gone through all of the source code, it is time to see it work. To build and test the kernel you need to  do the following:
+现在我们已经遍历了所有源代码，是时候来看一下它的工作了. 
 
-1. Execute `./build.sh` or `./build.bat` from [src/lesson01](https://github.com/s-matyukevich/raspberry-pi-os/tree/master/src/lesson01) in order to build the kernel. 
-1. Copy the generated `kernel8.img` file to the `boot` partition of your Raspberry Pi flash card and delete `kernel7.img`. Make sure you left all other files in the boot partition untouched (see [this](https://github.com/s-matyukevich/raspberry-pi-os/issues/43) issue for details)
-1. Modify the `config.txt` file as described in the previous section.
-1. Connect the USB-to-TTL serial cable as described in the [Prerequisites](../Prerequisites.md).
-1. Power on your Raspberry Pi.
-1. Open your terminal emulator. You should be able to see the `Hello, world!` message there.
+要构建和测试内核，您需要执行以下操作：
 
-Note that the sequence of steps described above asumes that you have Raspbian installed on your SD card. It is also posible to run the RPi OS using an empty SD card.
+1. 执行 `./build.sh` 或者 `./build.bat` 从 [src/lesson01](https://github.com/s-matyukevich/raspberry-pi-os/tree/master/src/lesson01) 去构建内核。
+2. 将生成的 `kernel8.img` 文件复制到 Raspberry Pi 闪存卡的 `boot` 分区 和删除 `kernel7.img`. 确保您保留了启动分区中的所有其他文件 (查看 [这](https://github.com/s-matyukevich/raspberry-pi-os/issues/43) 问题了解详细情况)
+3. 如上一节所述修改`config.txt`文件。
+4. 按照以下说明连接USB至TTL串行电缆 - [Prerequisites](../Prerequisites.md).
+5. 供电给你的 Raspberry Pi.
+6. 打开终端模拟器. 您应该可以在那里看到 `Hello，world！` 消息。
 
-1. Prepare your SD card:
-    * Use an MBR partition table
-    * Format the boot partition as FAT32
-    > The card should be formatted exactly in the same way as it is required to install Raspbian. Check `HOW TO FORMAT AN SD CARD AS FAT` section in the [official documenation](https://www.raspberrypi.org/documentation/installation/noobs.md) for more information.
-1. Copy the following files to the card:
-    * [bootcode.bin](https://github.com/raspberrypi/firmware/blob/master/boot/bootcode.bin) This is the GPU bootloader, it contains the GPU code to start the GPU and load the GPU firmware. 
-    * [start.elf](https://github.com/raspberrypi/firmware/blob/master/boot/start.elf) This is the GPU firmware. It reads `config.txt` and enables the GPU to load and run ARM specific user code from `kernel8.img`
-1. Copy `kernel8.img` and `config.txt` files. 
-1. Connect the USB-to-TTL serial cable.
-1. Power on your Raspberry Pi.
-1. Use your terminal emulator to connect to the RPi OS. 
+请注意，上述步骤顺序假定您的SD卡上已安装Raspbian. 也可以使用空的SD卡运行RPi OS。
 
-Unfortunately, all Raspberry Pi firmware files are closed-sourced and undocumented. For more information about the Raspberry Pi startup sequence, you can refer to some unofficial sources, like [this](https://raspberrypi.stackexchange.com/questions/10442/what-is-the-boot-sequence) StackExchange question or [this](https://github.com/DieterReuter/workshop-raspberrypi-64bit-os/blob/master/part1-bootloader.md) Github repository.
+1. 准备您的SD卡:
+    * 使用MBR分区表
+    * 将启动分区格式化为FAT32
+    > 该卡的格式应与安装Raspbian所需的格式完全相同。 可以查看 `HOW TO FORMAT AN SD CARD AS FAT` 部分在 [official documenation 官方文档](https://www.raspberrypi.org/documentation/installation/noobs.md) 来获取更多信息.
+2. 将以下文件复制到卡中:
+    * [bootcode.bin](https://github.com/raspberrypi/firmware/blob/master/boot/bootcode.bin) 这是GPU引导程序, 它包含用于启动GPU和加载GPU固件的GPU代码。
+    * [start.elf](https://github.com/raspberrypi/firmware/blob/master/boot/start.elf) 这是GPU固件. 它读取`config.txt`，并使GPU从`kernel8.img`加载并运行ARM特定的用户代码。
+3. 复制 `kernel8.img` 和 `config.txt` 文件. 
+4. 连接USB至TTL串行电缆.
+5. 供电给Raspberry Pi.
+6. 使用终端仿真器连接到RPi OS。
 
-##### Previous Page
+不幸的是，所有Raspberry Pi固件文件都是闭源且未记录在案。 有关Raspberry Pi启动顺序的更多信息, 你可以参考一些非官方的资料, 像[这个]](https://raspberrypi.stackexchange.com/questions/10442/what-is-the-boot-sequence) StackExchange 问​​题 或者是 [这个](https://github.com/DieterReuter/workshop-raspberrypi-64bit-os/blob/master/part1-bootloader.md) Github 仓库。
 
-[Prerequisites](../../docs/Prerequisites.md)
+##### 上一页
 
-##### Next Page
+[Prerequisites 先决条件](../../docs/Prerequisites.md)
 
-1.2 [Kernel Initialization: Linux project structure](../../docs/lesson01/linux/project-structure.md)
+##### 下一页
+
+1.2 [Kernel Initialization 内核初始化: Linux project structure Linux对象结构](../../docs/lesson01/linux/project-structure.md)
