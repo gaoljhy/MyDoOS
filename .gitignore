@@ -52,4 +52,5 @@ Mkfile.old
 dkms.conf
 
 # MacOS
+
 *.DS_Store
