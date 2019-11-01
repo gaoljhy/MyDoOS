@@ -1,30 +1,30 @@
-## 2.1: Processor initialization 
+## 2.1: 处理器初始化
 
-In this lesson, we are going to work more closely with the ARM processor. It has some essential features that can be utilized by the OS. The first such feature is called "Exception levels".
+在本课程中，我们将与`ARM`处理器更加紧密地合作。它具有一些可由操作系统使用的基本功能。第一个这样的功能称为“特权级别”。
 
-### Exception levels
+### 特权级别
 
-Each ARM processor that supports ARM.v8 architecture has 4 exception levels. You can think about an exception level (or `EL` for short) as a processor execution mode in which only a subset of all operations and registers is available. The least privileged exception level is level 0. When processor operates at this level, it mostly uses only general purpose registers (X0 - X30) and stack pointer register (SP). EL0 also allows using `STR` and `LDR` commands to load and store data to and from memory and a few other instructions commonly used by a user program.
+每个支持`ARM.v8`体系结构的`ARM`处理器都有`4`个特权级别。您可以将特权级别（或简称为`EL`）视为处理器执行模式，其中所有操作和寄存器中只有一部分可用。特权级别最低的异常级别为`0`。当处理器在该级别上运行时，它通常仅使用通用寄存器（`X0-X30`）和堆栈指针寄存器（`SP`）。`EL0`还允许使用 `STR` 和 `LDR` 命令来加载和存储数据以及将其存储在存储器中以及用户程序通常使用的其他一些指令。
 
-An operating system should deal with exception levels because it needs to implement process isolation. A user process should not be able to access other process's data. To achieve such behavior, an operating system always runs each user process at EL0. Operating at this exception level a process can only use it's own virtual memory and can't access any instructions that change virtual memory settings. So, to ensure process isolation, an OS need to prepare separate virtual memory mapping for each process and put the processor into EL0 before transferring execution to a user process.
+操作系统应处理异常级别，因为它需要实现进程隔离。用户进程不应能够访问其他进程的数据。为了实现这种行为，操作系统始终在`EL0`上运行每个用户进程。在此异常级别上运行，进程只能使用它自己的虚拟内存，而不能访问任何更改虚拟内存设置的指令。因此，为了确保进程隔离，操作系统需要为每个进程准备独立的虚拟内存映射，然后将处理器转移到用户进程之前将其放入`EL0`。
 
-An operating system itself usually works at EL1. While running at this exception level processor gets access to the registers that allows configuring virtual memory settings as well as to some system registers. Raspberry Pi OS also will be using EL1.
+操作系统本身通常在`EL1`上运行。在此异常级别运行时，处理器可以访问允许配置虚拟内存设置的寄存器以及某些系统寄存器。 Raspberry Pi OS也将使用`EL1`。
 
-We are not going to use exceptions levels 2 and 3 a lot, but I just want to briefly describe them so you can get an idea why they are needed. 
+我们不会大量使用异常级别2和3，但是我只想简要地描述它们，以便您了解为什么需要它们。
 
-EL2 is used in a scenario when we are using a hypervisor. In this case host operating system runs at EL2 and guest operating systems can only use EL 1. This allows host OS to isolate guest OSes in a similar way how OS isolates user processes.
+`EL2`用于我们使用虚拟机监控程序的场景。在这种情况下，主机操作系统在`EL2`上运行，而来宾操作系统只能使用`EL1`。这允许主机`OS`以与`OS`隔离用户进程类似的方式隔离来宾`OS`。
 
-EL3 is used for transitions from ARM "Secure World" to "Insecure world". This abstraction exist to provide full hardware isolation between the software running in two different "worlds". Application from an "Insecure world" can in no way access or modify information (both instruction and data) that belongs to "Secure world", and this restriction is enforced at the hardware level. 
+`EL3`用于从ARM `安全世界` 到 `不安全世界` 的过渡。存在这种抽象是为了在两个不同的 `世界` 中运行的软件之间提供完全的硬件隔离。来自 `不安全世界` 的应用程序绝不能访问或修改属于 `安全世界` 的信息（指令和数据），并且此限制在硬件级别上强制执行。
 
-### Debugging the kernel
+### 调试内核
 
-Next thing that I want to do is to figure out which Exception level we are currently using. But when I tried to do this, I realized that the kernel could only print some constant string on a screen, but what I need is some analog of [printf](https://en.wikipedia.org/wiki/Printf_format_string) function. With `printf` I can easily display values of different registers and variables. Such functionality is essential for the kernel development because you don't have any other debugger support and `printf` becomes the only mean by which you can figure out what is going on inside your program.
+我要做的下一件事是弄清楚我们当前正在使用的异常级别。但是当我尝试执行此操作时，我意识到内核只能在屏幕上打印一些常量字符串，但是我需要的是 [printf](https://en.wikipedia.org/wiki/Printf_format_string) 函数的类似物。使用 `printf`，我可以轻松显示不同寄存器和变量的值。这样的功能对于内核开发是必不可少的，因为您没有任何其他调试器支持，并且 `printf` 成为您确定程序内部正在发生什么的唯一手段。
 
-For the RPi OS I decided not to reinvent the wheel and use one of  [existing printf implementations](http://www.sparetimelabs.com/tinyprintf/tinyprintf.php) This function consists mostly from string manipulations and is not very interesting from a kernel developer point of view. The implementation that I used is very small and don't have external dependencies, that allows it to be easily integrated into the kernel. The only thing that I have to do is to define `putc`  function that can send a single character to the screen. This function is defined [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/mini_uart.c#L59) and it just uses already existing `uart_send` function. Also, we need to initialize the `printf` library and specify the location of the `putc` function. This is done in a single [line of code](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/kernel.c#L8).
+对于RPi OS，我决定不重新发明轮子，而是使用现有的 [printf](http://www.sparetimelabs.com/tinyprintf/tinyprintf.php) 实现之一 此功能主要由字符串操作组成，对于内核开发人员的观点。我使用的实现很小，并且没有外部依赖关系，因此可以轻松地将其集成到内核中。我唯一要做的就是定义可以将单个字符发送到屏幕的`putc`函数。此函数在[此处](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/mini_uart.c#L59) 定义，它仅使用已经存在的 `uart_send` 功能。同样，我们需要初始化 `printf` 库并指定 `putc` 函数的位置。这是在单个 [代码行](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/kernel.c#L8) 中完成的。
 
-### Finding current Exception level
+### 查找当前的异常级别
 
-Now, when we are equipped with the `printf` function, we can complete our original task: figure out at which exception level the OS is booted. A small function that can answer this question is defined [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/utils.S#L1) and looks like this.
+现在，当我们具备`printf`功能时，我们可以完成我们的原始任务：确定操作系统在哪个异常级别启动。一个可以回答这个问题的小函数在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/utils.S#L1) 中定义像这样。
 
 ```
 .globl get_el
@@ -34,31 +34,32 @@ get_el:
     ret
 ```
 
-Here we use `mrs` instruction to read the value from `CurrentEL` system register into `x0` register. Then we shift this value 2 bits to the right (we need to do this because first 2 bits in the `CurrentEL` register are reserved and always have value 0) And finally in the register `x0` we have an integer number indicating current exception level. Now the only thing that is left is to display this value, like [this](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/kernel.c#L10).
+在这里，我们使用 `mrs` 指令将 `CurrentEL` 系统寄存器中的值读入 `x0` 寄存器中。然后，我们将这个值向右移2位（我们需要这样做，因为`CurrentEL`寄存器中的前2位是保留位，并且始终为`0`），最后在寄存器`x0`中，我们有一个整数，指示当前异常水平。现在剩下的唯一事情就是显示此值，例如 [这个](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/kernel.c#L10)。
+
 
 ```
     int el = get_el();
     printf("Exception level: %d \r\n", el);
 ```
 
-If you reproduce this experiment, you should see `Exception level: 3` on the screen.
+如果您重现此实验，则应该在屏幕上看到 `异常级别：3`。
 
-### Changing current exception level
+### 更改当前的异常级别
 
-In ARM architecture there is no way how a program can increase its own exception level without the participation of the software that already runs on a higher level. This makes a perfect sense: otherwise, any program would be able to escape its assigned EL and access other programs data. Current EL can be changed only if an exception is generated. This can happen if a program executes some illegal instruction (for example, tries to access memory location at a nonexisting address, or tries to divide by 0) Also an application can run `svc` instruction to generate an exception on purpose. Hardware generated interrupts are also handled as a special type of exceptions. Whenever an exception is generated the following sequence of steps takes place (In the description I am assuming that the exception is handled at EL `n`, were `n` could be 1, 2 or 3).
+在 `ARM` 体系结构中，如果没有已经在更高级别上运行的软件的参与，程序就无法增加自己的异常级别。这是一个完美的意义：否则，任何程序都可以转义其分配的 `EL` 并访问其他程序数据。仅当生成异常时，才能更改当前的EL。如果程序执行某些非法指令（例如，尝试访问不存在的地址上的内存位置或试图除以`0`），则可能会发生这种情况。应用程序也可以运行 `svc` 指令来故意生成异常。硬件生成的中断也被视为特殊类型的异常。每当生成异常时，都会发生以下步骤序列（在描述中，我假设异常是在EL`n`处处理的，而`n`可能是`1`、`2`或`3`）。
 
-1. Address of the current instruction is saved in the `ELR_ELn`  register. (It is called `Exception link register`)
-1. Current processor state is stored in `SPSR_ELn` register (`Saved Program Status Register`)
-1. An exception handler is executed and does whatever job it needs to do.
-1. Exception handler calls `eret` instruction. This instruction restores processor state from `SPSR_ELn` and resumes execution starting from the address, stored in the `ELR_ELn`  register.
+1. 当前指令的地址保存在 `ELR_ELn` 寄存器中。 （称为 `异常链接寄存器`）
+2. 当前处理器状态存储在 `SPSR_ELn` 寄存器中（`保存的程序状态寄存器`中）
+3. 异常处理程序将执行并执行所需的任何工作。
+4. 异常处理程序调用`eret`指令。该指令从 `SPSR_ELn` 恢复处理器状态，并从存储在 `ELR_ELn` 寄存器中的地址开始恢复执行。
 
-In practice the process is a little more complicated because exception handler also needs to store the state of all general purpose registers and restore it back afterwards, but we will discuss this process in details in the next lesson. For now, we need just to understand the process in general and remember the meaning of the `ELR_ELm` and `SPSR_ELn` registers.
+在实践中，该过程要复杂一些，因为异常处理程序还需要存储所有通用寄存器的状态，然后将其还原回去，但是我们将在下一课中详细讨论该过程。现在，我们只需要大致了解该过程，并记住`ELR_ELm`和`SPSR_ELn`寄存器的含义即可。
 
-An important thing to know is that exception handler is not obliged to return to the same location from which the exception originates. Both `ELR_ELm` and `SPSR_ELn` are writable and exception handler can modify them if it wants to. We are going to use this technique to our advantage when we try to switch from EL3 to EL1 in our code.
+要知道的重要一点是，异常处理程序没有义务返回到异常所源自的相同位置。 `ELR_ELm` 和 `SPSR_ELn` 都是可写的，如果需要，异常处理程序可以对其进行修改。当我们尝试在代码中从 `EL3` 切换到 `EL1` 时，我们将利用这种技术来发挥优势。
 
-### Switching to EL1
+### 切换到EL1
 
-Strictly speaking, our operating system is not obliged to switch to EL1, but EL1 is a natural choice for us because this level has just the right set of privileges to implement all common OS tasks. It also will be an interesting exercise to see how switching exceptions levels works in action. Let's take a look at the [source code that does this](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/boot.S#L17).
+严格来说，我们的操作系统不是必须切换到`EL1`，但是`EL1`对我们来说是很自然的选择，因为该级别具有执行所有常见 `OS`任务的正确权限集。看看切换异常级别是如何工作的，这也是一个有趣的练习。让我们看一下 [执行此操作的源代码](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/src/boot.S#L17)。
 
 ```
 master:
@@ -80,66 +81,68 @@ master:
     eret                
 ```
 
-As you can see the code consists mostly of configuring a few system registers. Now we are going to examine those registers one by one. In order to do this we first need to download [AArch64-Reference-Manual](https://developer.arm.com/docs/ddi0487/ca/arm-architecture-reference-manual-armv8-for-armv8-a-architecture-profile). This document contains the detailed specification of the `ARM.v8` architecture. 
+如您所见，该代码主要由配置一些系统寄存器组成。 现在我们将逐一检查这些寄存器。 为此，我们首先需要下载 [AArch64-Reference-Manual](https://developer.arm.com/docs/ddi0487/ca/arm-architecture-reference-manual-armv8-for-armv8-a-architecture-profile). 本文档包含 `ARM.v8` 体系结构的详细规范。
 
-#### SCTLR_EL1, System Control Register (EL1), Page 2654 of AArch64-Reference-Manual.
+#### SCTLR_EL1, 系统控制寄存器 (EL1), Page 2654 of AArch64-Reference-Manual.
 
 ```
     ldr    x0, =SCTLR_VALUE_MMU_DISABLED
     msr    sctlr_el1, x0        
 ```
 
-Here we set the value of the `sctlr_el1` system register. `sctlr_el1` is responsible for configuring different parameters of the processor, when it operates at EL1. For example, it controls whether the cache is enabled and, what is most important for us, whether the MMU (Memory Mapping Unit) is turned on. `sctlr_el1` is accessible from all exception levels higher or equal than EL1 (you can infer this from `_el1` postfix) 
+在这里，我们设置 `sctlr_el1` 系统寄存器的值。 `sctlr_el1` 负责在EL1上运行时配置处理器的不同参数。 例如，它控制是否启用缓存以及对我们最重要的是是否打开 `MMU`（内存映射单元）。 可以从所有高于或等于 `EL1` 的异常级别访问`sctlr_el1`（您可以从 `_el1` 后缀中推断出这一点）
 
-`SCTLR_VALUE_MMU_DISABLED` constant is defined [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L16) Individual bits of this value are defined like this:
+`SCTLR_VALUE_MMU_DISABLED` 的常量定义在 [这](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L16) 
+该值的各个位定义如下：
 
-* `#define SCTLR_RESERVED                  (3 << 28) | (3 << 22) | (1 << 20) | (1 << 11)` Some bits in the description of `sctlr_el1` register are marked as `RES1`. Those bits are reserved for future usage and should be initialized with `1`.
-* `#define SCTLR_EE_LITTLE_ENDIAN          (0 << 25)` Exception [Endianness](https://en.wikipedia.org/wiki/Endianness). This field controls endianess of explicit data access at EL1. We are going to configure the processor to work only with `little-endian` format.
-* `#define SCTLR_EOE_LITTLE_ENDIAN         (0 << 24)` Similar to previous field but this one controls endianess of explicit data access at EL0, instead of EL1. 
-* `#define SCTLR_I_CACHE_DISABLED          (0 << 12)` Disable instruction cache. We are going to disable all caches for simplicity. You can find more information about data and instruction caches [here](https://stackoverflow.com/questions/22394750/what-is-meant-by-data-cache-and-instruction-cache).
-* `#define SCTLR_D_CACHE_DISABLED          (0 << 2)` Disable data cache.
-* `#define SCTLR_MMU_DISABLED              (0 << 0)` Disable MMU. MMU must be disabled until the lesson 6, where we are going to prepare page tables and start working with virtual memory.
+* `#define SCTLR_RESERVED（3 << 28）| （3 << 22）| （1 << 20）| （1 << 11）` sctlr_el1 寄存器描述中的某些位标记为 `RES1`。这些位保留供将来使用，应将其初始化为`1`。
+* `#define SCTLR_EE_LITTLE_ENDIAN（0 << 25）` 异常[字节序](https://en.wikipedia.org/wiki/字节序)。该字段控制在EL1处进行显式数据访问的顺序。我们将配置处理器以仅使用 `little-endian` 格式。
+* `#define SCTLR_EOE_LITTLE_ENDIAN         (0 << 24)` 与上一字段类似，但此字段控制 `EL0` 而不是`EL1`处的显式数据访问的字节序。
+* `#define SCTLR_I_CACHE_DISABLED          (0 << 12)` 禁用指令缓存。为了简单起见，我们将禁用所有缓存。您可以在[此处](https://stackoverflow.com/questions/22394750/what-is-meant-by-data-cache-and-instruction-cache)找到有关数据和指令高速缓存的更多信息。
+* `#define SCTLR_D_CACHE_DISABLED          (0 << 2)` 禁用数据缓存。
+* `#define SCTLR_MMU_DISABLED              (0 << 0)` 禁用MMU. 在第6课之前，必须禁用MMU，在第6课中，我们将准备页表并开始使用虚拟内存。
 
-#### HCR_EL2, Hypervisor Configuration Register (EL2), Page 2487 of AArch64-Reference-Manual. 
+#### HCR_EL2, 系统管理程序配置寄存器 (EL2), Page 2487 of AArch64-Reference-Manual. 
 
 ```
     ldr    x0, =HCR_VALUE
     msr    hcr_el2, x0
 ```
 
-We are not going to implement our own [hypervisor](https://en.wikipedia.org/wiki/Hypervisor). Stil we need to use this register because, among other settings, it controls the execution state at EL1. Execution state must be `AArch64` and not `AArch32`. This is configured [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L22).
+我们不会实施我们自己的[hypervisor](https://en.wikipedia.org/wiki/Hypervisor). 直到我们需要使用该寄存器，因为在其他设置中，它控制着EL1的执行状态。执行状态必须是`AArch64`而不是`AArch32`. 此配置在[此处](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L22).
 
-#### SCR_EL3, Secure Configuration Register (EL3), Page 2648 of AArch64-Reference-Manual.
+#### SCR_EL3, 安全配置寄存器 (EL3), Page 2648 of AArch64-Reference-Manual.
 
 ```
     ldr    x0, =SCR_VALUE
     msr    scr_el3, x0
 ```
 
-This register is responsible for configuring security settings. For example, it controls whether all lower levels are executed in "secure" or "nonsecure" state. It also controls execution state at EL2. [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L26) we set that EL2  will execute at `AArch64` state, and all lower exception levels will be "non secure". 
+该寄存器负责配置安全设置。例如，它控制所有较低级别是在 `安全` 状态还是 `非安全` 状态下执行。它还控制 `EL2` 的执行状态。我们设置EL2将在`AArch64`处执行可参考在[这](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L26)。所有较低的异常级别将是 `不安全的`。
 
-#### SPSR_EL3, Saved Program Status Register (EL3), Page 389 of AArch64-Reference-Manual.
+#### SPSR_EL3, 保存的程序状态寄存器 (EL3), Page 389 of AArch64-Reference-Manual.
 
 ```
     ldr    x0, =SPSR_VALUE
     msr    spsr_el3, x0
 ```
 
-This register should be already familiar to you - we mentioned it when discussed the process of changing exception levels. `spsr_el3` contains processor state, that will be restored after we execute `eret` instruction.
-It is worth saying a few words explaining what processor state is. Processor state includes the following information:
+该寄存器应该已经为您所熟悉-在讨论更改异常级别的过程时我们提到了它。 `spsr_el3`包含处理器状态，在我们执行`eret`指令后将恢复该状态。
 
-* **Condition Flags** Those flags contains information about previously executed operation: whether the result was negative (N flag), zero (A flag), has unsigned overflow (C flag) or has signed overflow (V flag). Values of those flags can be used in conditional branch instructions. For example, `b.eq` instruction will jump to the provided label only if the result of the last comparison operation is equal to 0. The processor checks this by testing whether Z flag is set to 1.
+值得说几句话来说明什么是处理器状态。处理器状态包括以下信息：
 
-* **Interrupt disable bits** Those bits allows to enable/disable different types of interrupts.
+* **Condition Flags** 这些标志包含有关先前执行的操作的信息：结果是负数（N标志），零（A标志），无符号溢出（C标志）还是有符号溢出（V标志）。这些标志的值可以在条件分支指令中使用。例如，仅当上一次比较操作的结果等于0时，`b.eq`指令才会跳转到所提供的标签。处理器通过测试Z标志是否设置为1来进行检查。
 
-* Some other information, required to fully restore the processor execution state after an exception is handled.
+* **Interrupt disable bits** 这些位允许启用/禁用不同类型的中断。
 
-Usually `spsr_el3` is saved automatically when an exception is taken to EL3. However this register is writable, so we take advantage of this fact and manually prepare processor state. `SPSR_VALUE` is prepared [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L35) and we initialize the following fields:
+* 处理异常后，完全恢复处理器执行状态所需的一些其他信息。
 
-* `#define SPSR_MASK_ALL        (7 << 6)` After we change EL to EL1 all types of interrupts will be masked (or disabled, which is the same).
-* `#define SPSR_EL1h        (5 << 0)` At EL1 we can either use our own dedicated stack pointer or use EL0 stack pointer. `EL1h` mode means that we are using EL1 dedicated stack pointer. 
+通常，当EL3发生异常时，会自动保存`spsr_el3`。但是该寄存器是可写的，因此我们利用这一事实并手动准备处理器状态。在[这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/include/arm/sysregs.h#L35) 准备了`SPSR_VALUE`，并初始化了以下内容领域：
 
-#### ELR_EL3, Exception Link Register (EL3), Page 351 of AArch64-Reference-Manual.
+* `#define SPSR_MASK_ALL        (7 << 6)` 将`EL`更改为`EL1`后，所有类型的中断都将被屏蔽（或禁用，这是相同的）.
+* `#define SPSR_EL1h        (5 << 0)` 在`EL1`，我们可以使用自己专用的堆栈指针，也可以使用`EL0`堆栈指针。 `EL1h`模式意味着我们正在使用`EL1`专用堆栈指针。 
+
+#### ELR_EL3, 异常链接寄存器 (EL3), Page 351 of AArch64-Reference-Manual.
 
 ```
     adr    x0, el1_entry        
@@ -148,16 +151,16 @@ Usually `spsr_el3` is saved automatically when an exception is taken to EL3. How
     eret                
 ```
 
-`elr_el3` holds the address, to which we are going to return after `eret` instruction will be executed. Here we set this address to the location of `el1_entry` label.
+`elr_el3` 保存该地址，在执行 `eret` 指令后，我们将返回该地址。在这里，我们将此地址设置为 `el1_entry` 标签的位置。
 
-### Conclusion
+### 结论
 
-That is pretty much it: when we enter `el1_entry` function the execution should be already at EL1 mode. Go ahead and try it out! 
+差不多了：当我们输入`el1_entry`函数时，执行应该已经处于`EL1`模式。继续尝试！
 
-##### Previous Page
+##### 上一页
 
-1.5 [Kernel Initialization: Exercises](../../docs/lesson01/exercises.md)
+1.5 [Kernel Initialization: Exercises 内核初始化：练习](../../docs/lesson01/exercises.md)
 
-##### Next Page
+##### 下一页
 
-2.2 [Processor initialization: Linux](../../docs/lesson02/linux.md)
+2.2 [Processor initialization: Linux 处理器初始化：Linux](../../docs/lesson02/linux.md)

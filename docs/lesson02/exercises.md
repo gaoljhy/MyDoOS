@@ -1,13 +1,13 @@
 ## 2.3: Exercises
 
-1. Instead of jumping directly from EL3 to EL1, try to get to EL2 first and only then switch to EL1. 
-1. One issue that I ran into when working on this lesson was that if FP/SIMD registers are used then everything works well at EL3, but as soon as you get to EL1 print function stops working. This was the reason why I've added [-mgeneral-regs-only](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/Makefile#L3) parameter to the compiler options. Now I want you to remove this parameter and reproduce this behavior. Next, you can use `objdump` tool to see how exactly gcc make use of FP/SIMD registers in the absence of `-mgeneral-regs-only` flag. Finally, I want you to use 'cpacr_el1' to allow ussing FP/SIMD registers.
-1. Adapt lesson 02 to run on qemu. Check [this](https://github.com/s-matyukevich/raspberry-pi-os/issues/8) issue for reference.
+1. 与其直接从EL3跳到EL1，不如尝试先到达EL2，然后再切换到EL1。
+2. 在学习本课程时，我遇到的一个问题是，如果使用`FP/SIMD`寄存器，那么EL3的一切运行正常， 但是一旦进入EL1，打印功能就会停止工作. 这就是为什么我添加 [-mgeneral-regs-only](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson02/Makefile#L3) 编译器选项的参数. 现在，我希望您删除此参数并重现此行为。 接下来，您可以使用 `objdump` 工具来查看gcc在没有 `-mgeneral-regs-only` 标志的情况下如何充分利用 `FP/SIMD` 寄存器。 最后，我希望您使用 `cpacr_el1` 来允许使用 `FP/SIMD` 寄存器。
+3. 改编第02课以在`qemu`上运行。 校验 [这个](https://github.com/s-matyukevich/raspberry-pi-os/issues/8) issue 供参考。
 
-##### Previous Page
+##### 上一页
 
-2.2 [Processor initialization: Linux](../../docs/lesson02/linux.md)
+2.2 [处理器初始化：Linux](../../docs/lesson02/linux.md)
 
 ##### Next Page
 
-3.1 [Interrupt handling: RPi OS](../../docs/lesson03/rpi-os.md)
+3.1 [中断处理：RPi OS](../../docs/lesson03/rpi-os.md)
