@@ -112,7 +112,7 @@ ARM处理器状态有4位，负责保持不同类型中断的屏蔽状态。这�
 
 ### 配置中断控制器
 
-设备通常不直接中断处理器：相反，它们依靠中断控制器来完成工作。中断控制器可用于启用/禁用硬件发送的中断。我们还可以使用中断控制器来确定哪个设备产生了中断。 Raspberry PI具有自己的中断控制器，该控制器在[BCM2837 ARM外设手册](https://github.com/raspberrypi/documentation/files/1888662/BCM2837-ARM-Peripherals.-.Revised.-.V2 -1.pdf)的第109页上进行了描述。
+设备通常不直接中断处理器：相反，它们依靠中断控制器来完成工作。中断控制器可用于启用/禁用硬件发送的中断。我们还可以使用中断控制器来确定哪个设备产生了中断。 Raspberry PI具有自己的中断控制器，该控制器在 [BCM2837 ARM 外设手册](https://github.com/raspberrypi/documentation/files/1888662/BCM2837-ARM-Peripherals.-.Revised.-.V2) 的第109页上进行了描述。
 
 Raspberry Pi中断控制器具有3个寄存器，用于保存所有类型的中断的启用/禁用状态。目前，我们仅对计时器中断感兴趣，可以使用[ENABLE_IRQS_1](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson03/include/外设/irq.h#L10)寄存器，在 `BCM2837 ARM外设手册` 的第116页上进行了介绍。 根据文档，中断分为2个存储区。第一个存储区由中断 `0-31` 组成，可以通过将寄存器 `ENABLE_IRQS_1` 的不同位置1来启用或禁用这些中断。 最后32个中断还有一个对应的寄存器 - `ENABLE_IRQS_2`和一个控制一些常见中断以及ARM本地中断的寄存器 - `ENABLE_BASIC_IRQS`（在本课程的下一章中将讨论ARM本地中断）。 但是，《外围设备手册》有很多错误，其中之一与我们的讨论直接相关。 外围设备中断表（在手册第113页上进行了说明）应在 `0-3` 行包含4个来自系统定时器的中断。 从逆向工程Linux源代码并阅读[其他一些资源](http://embedded-xinu.readthedocs.io/en/latest/arm/rpi/BCM2835-System-Timer.html)，我能够弄清楚该计时器中断0和2被保留并由GPU使用，中断1和3可以用于任何其他目的。 因此，这是启用系统计时器IRQ编号1的[功能](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson03/src/irq.c#L29)。
 
