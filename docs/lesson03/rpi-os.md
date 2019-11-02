@@ -179,7 +179,7 @@ void handle_timer_irq( void )
 
 ### 结论
 
-您可能要看的最后一件事是[kernel_main](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson03/src/kernel.c# L7) 功能，其中协调了所有先前讨论的功能。编译并运行示例后，应在中断发生后输出 `收到计时器中断`消息。请尝试自己动手做，不要忘记仔细检查代码并进行试验。
+您可能要看的最后一件事是[kernel_main](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson03/src/kernel.c#L7) 功能，其中协调了所有先前讨论的功能。编译并运行示例后，应在中断发生后输出 `收到计时器中断`消息。请尝试自己动手做，不要忘记仔细检查代码并进行试验。
 
 ##### 上一页
 
