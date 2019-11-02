@@ -1,48 +1,48 @@
-## 3.3: Interrupt controllers
+## 3.3: 中断控制器
 
-In this chapter, we are going to talk a lot about Linux drivers and how they handle interrupts. We will start with driver initialization code and then take a look at how interrupts are processed after [handle_arch_irq](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L44) function.
+在本章中，我们将大量讨论Linux驱动程序以及它们如何处理中断。我们将从驱动程序初始化代码开始，然后看看[handle_arch_irq](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L44)功能。
 
-### Using device tree to find out needed devices and drivers
+### 使用设备树查找所需的设备和驱动程序
 
-When implementing interrupts in the RPi OS we have been working with 2 devices: system timer and interrupt controller. Now our goal will be to understand how the same devices work in Linux. The first thing we need to do is to find drivers that are responsible for working with mentioned devices. And in order to find needed drivers we can use [bcm2837-rpi-3-b.dts](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837-rpi-3-b.dts) device tree file. This is the top level device tree file that is specific for Raspberry Pi 3 Model B, it includes other more common device tree files, that are shared between different versions of Raspberry Pi. If you follow the chain of includes and search for `timer` and `interrupt-controller` you can find 4 devices.
+在RPi OS中实现中断时，我们一直在使用2种设备：系统定时器和中断控制器。现在，我们的目标是了解相同设备在Linux中的工作方式。我们需要做的第一件事是找到负责使用提到的设备的驱动程序。为了找到所需的驱动程序，我们可以使用[bcm2837-rpi-3-b.dts](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dots/bcm2837-rpi-3-b.dts) 设备树文件。 这是特定于Raspberry Pi 3 Model B的顶级设备树文件，它包含其他更常见的设备树文件，这些文件在不同版本的Raspberry Pi之间共享。 如果遵循包含的链并搜索 `timer` 和 `interrupt-controller` ，则可以找到4个设备。
 
-1. [Local interrupt controller](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L11)
-1. [Local timer](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L20)
-1. Global interrupt controller. It is defined [here](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L109) and modified [here](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L72).
-1. [System timer](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L57)
+1. [本地中断控制器](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L11)
+1. [本地计时器](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L20)
+1. 全局中断控制器. 它被定义在 [这里](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L109) 并修改 [这里](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L72).
+1. [系统计时器](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm283x.dtsi#L57)
 
-Stop, but why do we have 4 devices instead of 2? This requires some explanation, and we will tackle this question in the next section.
+停下来，但是为什么我们有4个设备而不是2个？这需要一些解释，我们将在下一部分中解决这个问题。
 
-### Local vs global interrupt controllers
+### 本地与全局中断控制器
 
-When you think about interrupt handling in multiprocessor systems, one question you should ask yourself is which core should be responsible for processing a particular interrupt? When an interrupt occurs, are all 4 cores interrupted, or only a single one? Is it possible to route a particular interrupt to a specific core? Another question you may wonder is how one processor can notify another processor if he needs to pass some information to it?
+考虑多处理器系统中的中断处理时，您应该问自己一个问题：哪个内核应负责处理特定的中断？发生中断时，是全部4个内核都中断了，还是只有一个？是否可以将特定的中断路由到特定的内核？您可能想知道的另一个问题是，如果一个处理器需要向其传递一些信息，该处理器如何通知另一个处理器？
 
-The local interrupt controller is a device that can help you in answering all those questions. It is responsible for the following tasks.
+本地中断控制器是可以帮助您回答所有这些问题的设备。它负责以下任务。
 
-* Configuring which core should receive a specific interrupt.
-* Sending interrupts between cores. Such interrupts are called "mailboxes" and allow cores to communicate one with each other.
-* Handling interrupts from local timer and performance monitors interrupts (PMU).
+* 配置哪个内核应该接收特定的中断。
+* 在内核之间发送中断。这样的中断称为`mailboxs`，并允许内核相互通信。
+* 处理来自本地计时器和性能监视器中断（PMU）的中断。
 
-The behavior of a local interrupt controller as well as a local timer is documented in [BCM2836 ARM-local peripherals](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf) manual.
+[BCM2836 ARM本地外围设备](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf) 手册中记录了本地中断控制器以及本地计时器的行为。
 
-I already mentioned local timer several times. Now you probably wonder why do we need two independent timers in the system? I guess that the primary use-case for using the local timer is when you want to configure all 4 cores to receive timer interrupts simultaneously. If you use system timer you can only route interrupts to a single core.
+我已经多次提到本地计时器。现在您可能想知道为什么我们在系统中需要两个独立的计时器？我猜想使用本地计时器的主要用例是当您要配置所有4个内核以同时接收计时器中断时。如果使用系统定时器，则只能将中断路由到单个内核。
 
-When working with the RPi OS we didn't work with either local interrupt controller or local timer. That is because by default local interrupt controller is configured in such a way that all external interrupts are sent to the first core, which is exactly what we need. We haven't used local timer because we use system timer instead.
+使用RPi OS时，我们既不使用本地中断控制器也不使用本地计时器。这是因为默认情况下，本地中断控制器的配置方式是将所有外部中断都发送到第一个内核，这正是我们所需要的。我们没有使用本地计时器，因为我们使用了系统计时器。
 
-### Local interrupt controller
+### 本地中断控制器
 
-Accordingly to the [bcm2837.dtsi](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L75) the global interrupt controller is a child of the local one. Thus it makes sense to start our exploration with the local controller.
+根据[bcm2837.dtsi](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L75)，全局中断控制器是当地的。因此，从本地控制器开始我们的探索是有意义的。
 
-If we need to find a driver that works with a particular device, we should use [compatible](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L12) property. Searching for the value of this property you can easily find that there is a single driver that is compatible with RPi local interrupt controller - here is the corresponding [definition](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L315).
+如果我们需要找到适用于特定设备的驱动程序，则应使用[compatible](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L12) 属性。搜索该属性的值，您可以轻松地找到一个与RPi本地中断控制器兼容的驱动程序 - 这是对应的 [定义](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L315).
 
 ```
 IRQCHIP_DECLARE(bcm2836_arm_irqchip_l1_intc, "brcm,bcm2836-l1-intc",
         bcm2836_arm_irqchip_l1_intc_of_init);
 ```
 
-Now you can probably guess what is the procedure of a driver initialization: the kernel walks through all device definitions in the device tree and for each definition it looks for a matching driver using "compatible" property. If the driver is found, then its initialization function is called. Initialization function is provided during device registration, and in our case this function is [bcm2836_arm_irqchip_l1_intc_of_init](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L280).
+现在您可能已经猜出了驱动程序初始化的过程是什么：内核遍历设备树中的所有设备定义，并且针对每个定义，它使用 `compatible` 属性寻找匹配的驱动程序。如果找到驱动程序，则调用其初始化函数。 在设备注册过程中提供了初始化功能，在本例中，此功能是 [bcm2836_arm_irqchip_l1_intc_of_init](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L280).
 
-```
+```cpp
 static int __init bcm2836_arm_irqchip_l1_intc_of_init(struct device_node *node,
                               struct device_node *parent)
 {
@@ -79,13 +79,13 @@ static int __init bcm2836_arm_irqchip_l1_intc_of_init(struct device_node *node,
 }
 ```
 
-The initialization function takes 2 parameters: 'node' and 'parent', both of them are of the type [struct device_node](https://github.com/torvalds/linux/blob/v4.14/include/linux/of.h#L49). `node` represents the current node in the device tree, and in our case it points [here](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L11)  `parent` is a parent node in the device tree hierarchy, and for the local interrupt controller it points to `soc` element (`soc` stands for "system on chip" and it is the simplest possible bus which maps all device registers directly to main memory.).
+初始化函数采用2个参数：`node`和`parent`，它们都是类型[struct device_node](https://github.com/torvalds/linux/blob/v4.14/include/linux/of.h#L49). `node`代表设备树中的当前节点，在本例中，它指向 [这里](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L11)  `parent` 是设备树层次结构中的父节点，对于本地中断控制器，它指向 `soc` 元素（ `soc` 代表 `片上系统`，它是最简单的总线，可以直接映射所有设备寄存器到主内存。）。
 
-`node` can be used to read various properties from the current device tree node. For example, the first line of the `bcm2836_arm_irqchip_l1_intc_of_init` function reads the device base address from [reg](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L13) property. However, the process is more complicated than that, because when this function is executed MMU is already enabled, and before we will be able to access some region of physical memory we must map this region to some virtual address. This is exactly what [of_iomap](https://github.com/torvalds/linux/blob/v4.14/drivers/of/address.c#L759) function is doing: it reads `reg` property of the provided node and maps the whole memory region, described by `reg` property, to some virtual memory region.
+节点可用于从当前设备树节点读取各种属性。例如，函数`bcm2836_arm_irqchip_l1_intc_of_init`的第一行从[reg](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837dtsi＃L13)读取设备基址属性。 但是，此过程要复杂得多，因为执行此功能时，已启用MMU，并且在我们能够访问物理内存的某个区域之前，必须将该区域映射到某个虚拟地址。 这正是[of_iomap](https://github.com/torvalds/linux/blob/v4.14/drivers/of/address.c#L759) 函数的作用: 它读取提供的节点的`reg`属性，并将由`reg`属性描述的整个内存区域映射到某个虚拟内存区域。
 
-Next local timer frequency is initialized in [bcm2835_init_local_timer_frequency](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L264) function. There is nothing specific about this function: it just uses some of the registers, described in [BCM2836 ARM-local peripherals](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf) manual, to initialize local timer.
+下一个本地计时器频率在[bcm2835_init_local_timer_frequency](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L264) 函数中初始化。 此功能没有特别说明：它仅使用某些寄存器，如[BCM2836 ARM本地外围设备](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf)手册中所述，以初始化本地计时器。
 
-Next line requires some explanations.
+下一行需要一些解释。
 
 ```
     intc.domain = irq_domain_add_linear(node, LAST_IRQ + 1,
@@ -93,11 +93,11 @@ Next line requires some explanations.
                         NULL);
 ```
 
-Linux assigns a unique integer number to each interrupt, you can think about this number as a unique interrupt ID. This ID is used each time you want to do something with an interrupt (for example, assign a handler, or assign which CPU should handle it). Each interrupt also has a hardware interrupt number. This is usually a number that tells which interrupt line was triggered. `BCM2837 ARM Peripherals manual` has the peripheral interrupt table at page 113 - you can think about an index in this table as a hardware interrupt number. So obviously we need some mechanism to map Linux irq numbers to hardware irq number and vice versa. If there is only one interrupt controller it would be possible to use one to one mapping but in general case a more sophisticated mechanism need to be used. In Linux [struct irq_domain](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdomain.h#L152) implements such mapping. Each interrupt controller driver should create its own irq domain and register all interrupts that it can handle with this domain. Registration function returns Linux irq number that later is used to work with the interrupt.
+Linux为每个中断分配一个唯一的整数，您可以将此数字视为唯一的中断ID。每次您想对中断执行操作时都会使用此ID（例如，分配处理程序或分配哪个CPU应该处理它）。每个中断还具有一个硬件中断号。这通常是一个数字，告诉您触发了哪个中断线。 `BCM2837 ARM外设手册` 的外设中断表位于第113页 - 您可以将此表中的索引视为硬件中断号。因此，显然，我们需要某种机制将Linux irq号映射到硬件irq号，反之亦然。如果只有一个中断控制器，则可以使用一对一的映射，但是通常情况下，需要使用更复杂的机制。在Linux中[struct irq_domain](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdomain.h#L152)实现了这种映射。每个中断控制器驱动程序应创建自己的`irq`域，并注册该域可以处理的所有中断。注册函数返回Linux irq号，该编号以后将用于处理中断。
 
-Next 6 lines are responsible for registering each supported interrupt with the irq domain.
+接下来的6行负责向`irq`域注册每个受支持的中断。
 
-```
+```cpp
     bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_CNTPSIRQ,
                      &bcm2836_arm_irqchip_timer);
     bcm2836_arm_irqchip_register_irq(LOCAL_IRQ_CNTPNSIRQ,
@@ -112,7 +112,8 @@ Next 6 lines are responsible for registering each supported interrupt with the i
                      &bcm2836_arm_irqchip_pmu);
 ```
 
-Accordingly to [BCM2836 ARM-local peripherals](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf) manual local interrupt controller handles 10 different interrupts: 0 - 3 are interrupts from local timer, 4 - 7 are mailbox interrupts, which are used in interprocess communication, 8 corresponds to all interrupts generated by the global interrupt controller and interrupt 9 is a performance monitor interrupt. [Here](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L67) you can see that the driver defines a set of constants that holds hardware irq number per each interrupt. The registration code above registers all interrupts, except mailbox interrupts, which are registered separately. In order to understand the registration code better lets examine [bcm2836_arm_irqchip_register_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L154) function.
+根据[BCM2836 ARM本地外设](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2836/QA7_rev3.4.pdf) 手动本地中断控制器处理10种不同的中断: 0-3是本地计时器的中断，4-7是邮箱中断，用于进程间通信，8对应于全局中断控制器生成的所有中断，中断9是性能监视器中断. [这里](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L67) 您会看到驱动程序定义了一组常量，每个常量都包含硬件irq号。上面的注册代码注册所有中断，但邮箱中断除外，邮箱中断是单独注册的。为了更好地了解注册码让我们来看看[bcm2836_arm_irqchip_register_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L154) function.
+
 
 ```
 static void bcm2836_arm_irqchip_register_irq(int hwirq, struct irq_chip *chip)
@@ -125,25 +126,25 @@ static void bcm2836_arm_irqchip_register_irq(int hwirq, struct irq_chip *chip)
 }
 ```
 
-The first line here performs actual interrupt registration. [irq_create_mapping](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdomain.c#L632) takes hardware interrupt number as an input and returns Linux irq number.
+第一行执行实际的中断注册。 [irq_create_mapping](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdomain.c#L632) 将硬件中断号作为输入并返回Linux irq号。
 
-[irq_set_percpu_devid](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L849) configures interrupt as "per CPU", so that it will be handled only on the current CPU. This makes perfect sense because all interrupts that we are discussing now are local and they all can be handled only on the current CPU.
+[irq_set_percpu_devid](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L849)将中断配置为`每个CPU`，因此只能在当前处理器上处理中央处理器。这非常有道理，因为我们现在讨论的所有中断都是本地中断，并且所有中断只能在当前CPU上处理。
 
-[irq_set_chip_and_handler](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L608), as its name suggest, sets irq chip and irq handler. Irq chip is a special struct, which needs to be created by the driver, that has methods for masking and unmasking a particular interrupt. The driver that we are examining right now defines 3 different irq chips: [timer](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L118) chip, [PMU](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L134) chip and [GPU](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L148) chip, which controls all interrupts generated by the external peripheral devices. Handler is a function that is responsible for processing an interrupt. In this case, the handler is set to generic [handle_percpu_devid_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L859) function. This handler later will be rewritten by the global interrupt controller driver.
+[irq_set_chip_and_handler](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L608), 顾名思义，设置irq芯片和irq处理程序。 Irq芯片是一种特殊的结构，需要由驱动程序创建，该结构具有用于屏蔽和取消屏蔽特定中断的方法。我们正在检查的驱动程序现在定义了3种不同的irq芯片: [timer](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L118) 芯片, [PMU](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L134) 芯片 和 [GPU](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L148) 芯片, 它控制由外部外围设备生成的所有中断。处理程序是负责处理中断的功能。在这种情况下，处理程序设置为通用 [handle_percpu_devid_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L859) 函数. 稍后，该处理程序将由全局中断控制器驱动程序重写。
 
-[irq_set_status_flags](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L652) in this particular case sets a flag, indicating that the current interrupt should be enabled manually and should not be enabled by default.
+[irq_set_status_flags](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L652) 在这种特殊情况下，设置一个标志，指示应手动启用当前中断，并且默认情况下不应启用。
 
-Going back to the `bcm2836_arm_irqchip_l1_intc_of_init` function, there are only 2 calls left. The first one is [bcm2836_arm_irqchip_smp_init](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L243). Here mailbox interrupts are enabled, allowing processors cores to communicate with each other.
+回到`bcm2836_arm_irqchip_l1_intc_of_init`函数，只剩下两个调用。第一个是 [bcm2836_arm_irqchip_smp_init](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L243). 在此启用了邮箱中断，从而允许处理器内核相互通信。
 
-The last function call is extremely important - this is the place where low-level exception handling code is connected to the driver.
+最后一个函数调用非常重要-这是将低级异常处理代码连接到驱动程序的地方。
 
 ```
     set_handle_irq(bcm2836_arm_irqchip_handle_irq);
 ```
 
-[set_handle_irq](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L46) is defined in architecture specific code and we already encountered this function. From the line above we can understand that [bcm2836_arm_irqchip_handle_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L164) will be called by the low-level exception code. The function itself is listed below.
+[set_handle_irq](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/irq.c#L46) 是在特定于体系结构的代码中定义的，我们已经遇到了此功能。 从上面的行中我们可以了解到[bcm2836_arm_irqchip_handle_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2836.c#L164) 将由低级异常代码调用。函数本身在下面列出。
 
-```
+```cpp
 static void
 __exception_irq_entry bcm2836_arm_irqchip_handle_irq(struct pt_regs *regs)
 {
@@ -169,7 +170,7 @@ __exception_irq_entry bcm2836_arm_irqchip_handle_irq(struct pt_regs *regs)
 }
 ```
 
-This function reads `LOCAL_IRQ_PENDING` register to figure out what interrupts are currently pending. There are 4 `LOCAL_IRQ_PENDING` registers, each corresponding to its own processor core, that's why current processor index is used to select the right one. Mailbox interrupts and all other interrupts are processed in 2 different clauses of an if statement. The interaction between different cores of a multiprocessor system is out of scope for our current discussion, so we are going to skip mailbox interrupt handling part. Now we have only the following 2 lines left unexplained.
+该函数读取 `LOCAL_IRQ_PENDING` 寄存器，以找出当前正在处理的中断。有4个 `LOCAL_IRQ_PENDING` 寄存器，每个寄存器对应于其自己的处理器内核，这就是为什么使用当前处理器索引来选择正确的寄存器的原因。邮箱中断和所有其他中断在if语句的2个不同子句中处理。多处理器系统的不同内核之间的交互超出了我们当前的讨论范围，因此我们将跳过邮箱中断处理部分。现在，仅剩下以下两行无法解释。
 
 ```
         u32 hwirq = ffs(stat) - 1;
@@ -177,13 +178,13 @@ This function reads `LOCAL_IRQ_PENDING` register to figure out what interrupts a
         handle_domain_irq(intc.domain, hwirq, regs);
 ```
 
-This is were interrupt is passed to the next handler. First of all hardware irq number is calculated. [ffs](https://github.com/torvalds/linux/blob/v4.14/include/asm-generic/bitops/ffs.h#L13) (Find first bit) function is used to do this. After hardware irq number is calculated [handle_domain_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L622) function is called. This function uses irq domain to translate hardware irq number to Linux irq number, then checks irq configuration (it is stored in [irq_desc](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdesc.h#L55) struct) and calls an interrupt handler. We've seen that the handler was set to [handle_percpu_devid_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L859). However, this handler will be overwritten by the child interrupt controller later. Now, let's examine how this happens.
+这是将中断传递给下一个处理程序的地方。首先计算硬件irq数。 [ffs](https://github.com/torvalds/linux/blob/v4.14/include/asm-generic/bitops/ffs.h#L13) (查找第一位) 函数用于执行此操作. 计算出硬件irq数后 [handle_domain_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/irqdesc.c#L622) 函数被调用. 此功能使用irq域将硬件irq号码转换为Linux irq号码，然后检查irq配置 (它存储在 [irq_desc](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdesc.h#L55) 结构) 并调用一个中断处理程序。 我们已经看到处理程序设置为 [handle_percpu_devid_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L859). 但是，此处理程序稍后将被子中断控制器覆盖。现在，让我们检查一下这是如何发生的。
 
-### Generic interrupt controller 
+### 通用中断控制器
 
-We have already seen how to use device tree and `compatible` property to find the driver corresponding to some device, so I am going to skip this part and jump straight to the generic interrupt controller driver source code. You can find it in [irq-bcm2835.c](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c) file. As usual, we are going to start our exploration with the initialization function. It is called [armctrl_of_init](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L141).
+我们已经看到了如何使用设备树和`compatible`属性来查找与某个设备相对应的驱动程序，因此我将跳过这一部分，直接跳转到通用中断控制器驱动程序源代码。 你可以在找到它在 [irq-bcm2835.c](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c) 文件. 和往常一样，我们将从初始化功能开始探索。 叫做 [armctrl_of_init](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L141).
 
-```
+```cpp
 static int __init armctrl_of_init(struct device_node *node,
 				  struct device_node *parent,
 				  bool is_2836)
@@ -230,9 +231,9 @@ static int __init armctrl_of_init(struct device_node *node,
 }
 ```
 
-Now, let's investigate this function in more details.
+现在，让我们更详细地研究此功能。
 
-```
+```cpp
     void __iomem *base;
     int irq, b, i;
 
@@ -247,18 +248,18 @@ Now, let's investigate this function in more details.
 
 ```
 
-The function starts with the code that reads device base address from the device three and initializes the irq domain. This part should be already familiar to you because we have seen similar code in the local irq controller driver.
+该函数以从设备3读取设备基地址并初始化irq域的代码开始。您应该已经熟悉此部分，因为我们已经在本地irq控制器驱动程序中看到了类似的代码。
 
-```
+```cpp
     for (b = 0; b < NR_BANKS; b++) {
         intc.pending[b] = base + reg_pending[b];
         intc.enable[b] = base + reg_enable[b];
         intc.disable[b] = base + reg_disable[b];
 ```
 
-Next, there is a loop that iterates over all irq banks. We already briefly touched irq banks in the first chapter of this lesson. The interrupt controller has 3 irq banks, which are controlled by `ENABLE_IRQS_1`, `ENABLE_IRQS_2` and `ENABLE_BASIC_IRQS` registers.  Each of the banks has its own enable, disable and pending registers. Enable and disable registers can be used to either enable or disable individual interrupts that belong to a particular bank. Pending register is used to determine what interrupts are waiting to be processed.
+接下来，有一个循环遍历所有irq库。在本课程的第一章中，我们已经简短地谈到了irq银行。中断控制器具有3个irq bank，由 `ENABLE_IRQS_1` ，`ENABLE_IRQS_2` 和 `ENABLE_BASIC_IRQS` 寄存器控制。每个存储区都有其自己的启用，禁用和挂起寄存器。启用和禁用寄存器可用于启用或禁用属于特定存储区的单个中断。待处理寄存器用于确定正在等待处理的中断。
 
-```
+```cpp
         for (i = 0; i < bank_irqs[b]; i++) {
             irq = irq_create_mapping(intc.domain, MAKE_HWIRQ(b, i));
             BUG_ON(irq <= 0);
@@ -268,17 +269,17 @@ Next, there is a loop that iterates over all irq banks. We already briefly touch
         }
 ```
 
-Next, there is a nested loop that is responsible for registering each supported interrupt and setting irq chip and handler.
+接下来，有一个嵌套循环，负责注册每个受支持的中断并设置irq芯片和处理程序。
 
-We already saw how the same functions are used in the local interrupt controller driver. However, I would like to highlight a few important things.
+我们已经看到了本地中断控制器驱动程序中如何使用相同的功能。但是，我想强调一些重要的事情。
 
-* [MAKE_HWIRQ](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L57) macro is used to calculate hardware irq number. It is calculated based on bank index and irq index inside the bank.
-* [handle_level_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603) is a common handler that is used for interrupts of the level type. Interrupts of such type keep interrupt line set to "high" until the interrupt is acknowledged. There are also edge type interrupts that works in a different way.
-* [irq_set_probe](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L667) function just unsets [IRQ_NOPROBE](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L64) interrupt flag, effectively disabling interrupt auto-probing. Interrupt auto-probing is a process that allows different drivers to discover which interrupt line their devices are connected to. This is not needed for Raspberry Pi, because this information is encoded in the device tree, however, for some devices, this might be useful. Please, refer to [this](https://github.com/torvalds/linux/blob/v4.14/include/linux/interrupt.h#L662) comment to understand how auto-probing works in the Linux kernel.
+* [MAKE_HWIRQ](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L57) 宏用于计算硬件irq号。它是根据银行内部的银行指数和irq指数计算的。
+* [handle_level_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603) 是用于级别类型的中断的通用处理程序。此类中断将中断线设置为“高”，直到确认该中断为止。还有边缘类型中断以不同的方式工作。
+* [irq_set_probe](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L667) 函数只是未设置 [IRQ_NOPROBE](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L64) 中断标志, 有效地禁用中断自动探测。中断自动探测是允许不同的驱动程序发现其设备连接到哪条中断线的过程. Raspberry Pi不需要此功能，因为此信息被编码在设备树中，但是，对于某些设备，这可能很有用。请参阅 [这个](https://github.com/torvalds/linux/blob/v4.14/include/linux/interrupt.h#L662) 评论以了解自动探测如何在Linux内核中工作。
 
-Next piece of code is different for BCM2836 and BCM2835 interrupt controllers (the first one corresponds to the RPi models 2 and 3, and the second one to RPi Model 1).  If we are dealing with BCM2836 the following code is executed.
+`BCM2836`和`BCM2835`中断控制器的下一段代码是不同的（第一个对应于RPi模型2和3，第二个对应于RPi模型1）。如果我们正在处理BCM2836，则执行以下代码。
 
-```
+```cpp
         int parent_irq = irq_of_parse_and_map(node, 0);
 
         if (!parent_irq) {
@@ -288,11 +289,11 @@ Next piece of code is different for BCM2836 and BCM2835 interrupt controllers (t
         irq_set_chained_handler(parent_irq, bcm2836_chained_handle_irq);
 ```
 
-Device tree [indicates](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L75) that local interrupt controller is a parent of the global interrupt controller. Another device tree [property](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L76) tells us that global interrupt controller is connected to the interupt line number 8 of the local controller, this means that our parent irq is the one with hardware irq number 8. Those 2 properties allow Linux kernel to find out parent interrupt number (this is Linux interrupt number, not hardware number). Finally [irq_set_chained_handler](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L636) function replaces the handler of the parent irq with [bcm2836_chained_handle_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L246) function.
+设备树[表明](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L75)本地中断控制器是全局中断控制器的父级。另一个设备树 [属性](https://github.com/torvalds/linux/blob/v4.14/arch/arm/boot/dts/bcm2837.dtsi#L76) 告诉我们全局中断控制器已连接到本地控制器的中断线8，这意味着您的父irq是硬件irq 8。 这2个属性允许Linux内核找出父中断号（这是Linux中断号，而不是硬件号）。最后[irq_set_chained_handler](https://github.com/torvalds/linux/blob/v4.14/include/linux/irq.h#L636) 函数将父irq的处理程序替换为 [bcm2836_chained_handle_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L246) 功能.
 
-[bcm2836_chained_handle_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L246) is very simple. Its code is listed below.
+[bcm2836_chained_handle_irq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L246) 很简单,其代码在下面列出。
 
-```
+```cpp
 static void bcm2836_chained_handle_irq(struct irq_desc *desc)
 {
     u32 hwirq;
@@ -302,12 +303,12 @@ static void bcm2836_chained_handle_irq(struct irq_desc *desc)
 }
 ```
 
-You can think about this code as an advanced version of what we did [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson03/src/irq.c#L39) for the RPi OS. [get_next_armctrl_hwirq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L217) uses all 3 pending registers to figure out which interrupt was fired. [irq_linear_revmap](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdomain.h#L377) uses irq domain to translate hardware irq number into Linux irq number and [generic_handle_irq](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdesc.h#L156) just executes irq handler. Irq handler was set in the initialization function and it points to [handle_level_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603) that eventually executes all irq actions associated with the interrupt (this is actually done [here](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/handle.c#L135).). For now, the list of irq actions is empty for all supported interrupts - a driver that is interested in handling some interrupt should add an action to the appropriate list. In the next chapter, we are going to see how this is done using system timer as an example.
+您可以将这段代码视为我们所做工作的高级版本 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson03/src/irq.c#L39) 用于RPi OS. [get_next_armctrl_hwirq](https://github.com/torvalds/linux/blob/v4.14/drivers/irqchip/irq-bcm2835.c#L217) 使用所有3个暂挂寄存器来确定触发了哪个中断。 [irq_linear_revmap](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdomain.h#L377) 使用irq域将硬件irq号码转换为Linux irq号码和 [generic_handle_irq](https://github.com/torvalds/linux/blob/v4.14/include/linux/irqdesc.h#L156) 只是执行irq处理程序。在初始化函数中设置了Irq处理程序 它指向 [handle_level_irq](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/chip.c#L603) 最终执行与中断相关的所有irq动作 (这实际上是完成的 [这里](https://github.com/torvalds/linux/blob/v4.14/kernel/irq/handle.c#L135).). 目前，所有支持的中断的irq操作列表为空 - 对处理某些中断感兴趣的驱动程序应在相应的列表中添加一个操作。在下一章中，我们将以系统计时器为例来了解如何完成此操作。
 
-##### Previous Page
+##### 上一页
 
-3.2 [Interrupt handling: Low-level exception handling in Linux](../../../docs/lesson03/linux/low_level-exception_handling.md)
+3.2 [中断处理：Linux中的低级异常处理](../../../docs/lesson03/linux/low_level-exception_handling.md)
 
-##### Next Page
+##### 下一页
 
-3.4 [Interrupt handling: Timers](../../../docs/lesson03/linux/timer.md)
+3.4 [中断处理：计时器](../../../docs/lesson03/linux/timer.md)
