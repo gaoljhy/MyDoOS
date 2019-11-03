@@ -1,12 +1,13 @@
 ## 4.1: Scheduler
 
-By now, the PRi OS is already a fairly complicated bare metal program, but to be honest, we still can't call it an operating system. The reason is that it can't do any of the core tasks that any OS should do. One of such core tasks is called process scheduling. By scheduling I mean that an operating system should be able to share CPU time between different processes. The hard part of it is that a process should be unaware of the scheduling happening: it should view itself as the only one occupying the CPU. In this lesson, we are going to add this functionality to the RPi OS.
+目前为止， PRi OS已经是一个相当复杂的裸机程序，但是说实话，我们仍然不能将其称为操作系统。原因是它无法完成任何OS应该执行的任何核心任务。这种核心任务之一称为流程调度。通过调度，我的意思是操作系统应该能够在不同进程之间共享CPU时间。其中最困难的部分是，一个进程应该不知道调度的发生：它应该将自己视为唯一占用CPU的进程。在本课程中，我们将将此功能添加到RPi OS。
+
 
 ### task_struct
 
-If we want to manage processes, the first thing we should do is to create a struct that describes a process. Linux has such a struct and it is called `task_struct`  (in Linux both thread and processes are just different types of tasks). As we are mostly mimicking Linux implementation, we are going to do the same. RPi OS [task_struct](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L36) looks like the following.
+如果要管理流程，我们应该做的第一件事就是创建一个描述流程的结构。 Linux具有这样的结构，它称为`task_struct`（在Linux中，线程和进程只是不同类型的任务）。 由于我们主要模仿Linux的实现，因此我们将做同样的事情。 RPi OS [task_struct](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L36) 如下所示。
 
-```
+```cpp
 struct cpu_context {
     unsigned long x19;
     unsigned long x20;
@@ -32,27 +33,27 @@ struct task_struct {
 };
 ```
 
-This struct has the following members:
+该结构具有以下成员：
 
-* `cpu_context` This is an embedded structure that contains values of all registers that might be different between the tasks, that are being switched. A reasonable question to ask is why do we save not all registers, but only registers `x19 - x30` and `sp`? (`fp` is `x29` and `pc` is `x30`) The answer is that actual context switch happens only when a task calls [cpu_switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.S#L4) function. So, from the point of view of the task that is being switched, it just calls `cpu_switch_to` function and it returns after some (potentially long) time. The task doesn't notice that another task happens to runs during this period.  Accordingly to ARM calling conventions registers `x0 - x18` can be overwritten by the called function, so the caller must not assume that the values of those registers will survive after a function call. That's why it doesn't make sense to save `x0 - x18` registers.
-* `state` This is the state of the currently running task. For tasks that are just doing some work on the CPU the state will always be [TASK_RUNNING](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L15). Actually, this is the only state that the RPi OS is going to support for now. However, later we will have to add a few additional states. For example, a task that is waiting for an interrupt should be moved to a different state, because it doesn't make sense to awake the task while the required interrupt hasn't yet happened.
-* `counter` This field is used to determine how long the current task has been running. `counter` decreases by 1 each timer tick and when it reaches 0 another task is scheduled.
-* `priority`  When a new task is scheduled its `priority` is copied to `counter`. By setting tasks priority, we can regulate the amount of processor time that the task gets relative to other tasks.
-* `preempt_count` If this field has a non-zero value it is an indicator that right now the current task is executing some critical function that must not be interrupted (for example, it runs the scheduling function.). If timer tick occurs at such time it is ignored and rescheduling is not triggered.
+* `cpu_context` 这是一个嵌入式结构，其中包含正在切换的任务之间可能不同的所有寄存器的值。 有一个合理的问题是为什么我们不保存所有寄存器，而只保存寄存器 `x19-x30` 和 `sp` ？(`fp` 是 `x29` 并且 `pc` 是 `x30`) 答案是实际的上下文切换仅在任务中调用[cpu_switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.S#L4)函数. 因此，从正在切换的任务的角度来看，它仅调用`cpu_switch_to`函数，并在一段时间（可能很长）后返回。该任务不会注意到在此期间发生了另一个任务。根据ARM的调用约定，寄存器 `x0-x18` 可以被调用的函数覆盖，因此调用者不得假定这些寄存器的值在函数调用后仍然存在。这就是为什么保存`x0-x18`寄存器没有意义的原因。
+* `state` 这是当前正在运行的任务的状态。对于仅在CPU上做一些工作的任务，状态始终为 [TASK_RUNNING](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L15). 实际上，这是RPi OS目前要支持的唯一状态。但是，稍后我们将不得不添加一些其他状态。例如，等待中断的任务应移至其他状态，因为在尚未发生所需的中断时唤醒任务是没有意义的。
+* `counter` 该字段用于确定当前任务已运行多长时间。 `计数器`会在每个计时器滴答时减少1，到0时便会安排另一个任务。
+* `priority`  安排新任务时，将其 `优先级` 复制到 `计数器` 中。通过设置任务优先级，我们可以调节任务相对于其他任务获得的处理器时间。
+* `preempt_count` 如果该字段的值为非零值，则表明当前任务正在执行一些不可中断的关键功能（例如，它运行调度功能）。如果在此时间发生计时器滴答，则将忽略它，并且不会触发重新计划。
 
-After the kernel startup, there is only one task running: the one that runs [kernel_main](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L19) function. It is called "init task". Before the scheduler functionality is enabled, we must fill `task_struct` corresponding to the init task. This is done [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L53).
+内核启动后，只有一个任务正在运行：一个正在运行 [kernel_main](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L19) 函数. 它称为“初始化任务”。在启用调度程序功能之前，我们必须填充与初始化任务相对应的 `task_struct`。 这个被完成在 [这](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/sched.h#L53).
 
-All tasks are stored in [task](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L7) array. This array has only 64 slots - that is the maximum number of simultaneous tasks that we can have in the RPi OS. It is definitely not the best solution for the production-ready OS, but it is ok for our goals.
+所有任务都存储在 [task](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L7) 数组. 该阵列只有64个插槽-这是我们在RPi OS中可以同时执行的最大任务数。对于生产就绪的OS来说，它绝对不是最佳解决方案，但对于我们的目标而言，这是可以的。
 
-There is also a very important variable called [current](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L6) that always points to the currently executing task. Both `current` and `task` array are initially set to hold a pointer to the init task. There is also a global variable called [nr_tasks](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L8) - it contains the number of currently running tasks in the system.
+还有一个非常重要的变量称为 [current](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L6) 总是指向当前正在执行的任务。 `current` 和 `task` 数组都初始设置为持有指向init任务的指针。 还有一个全局变量称为 [nr_tasks](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L8) - 它包含系统中当前正在运行的任务数。
 
-Those are all structures and global variables that we are going to use to implement the scheduler functionality. In the description of the `task_struct` I already briefly mentioned some aspects of how scheduling works, because it is impossible to understand the meaning of a particular `task_struct` field without understanding how this field is used. Now we are going to examine the scheduling algorithm in much more details and we will start with the `kernel_main` function.
+这些都是我们将用于实现调度程序功能的结构和全局变量。在对`task_struct`的描述中，我已经简要提到了调度工作的一些方面，因为如果不了解如何使用特定的`task_struct`字段，就无法理解其含义。现在我们将更详细地研究调度算法，我们将从 `kernel_main` 功能开始。
 
-### `kernel_main` function
+### `kernel_main` 函数
 
-Before we dig into the scheduler implementation, I want to quickly show you how we are going to prove that the scheduler actually works. To understand it, you need to take a look at the [kernel.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c) file. Let me copy the relevant content here.
+在深入探讨调度程序实现之前，我想快速向您展示如何证明调度程序确实有效。 要了解它，您需要看一下 [kernel.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c) 文件. 让我在此处复制相关内容。
 
-```
+```cpp
 void kernel_main(void)
 {
     uart_init();
@@ -79,14 +80,14 @@ void kernel_main(void)
 }
 ```
 
-There are a few important things about this code.
+关于此代码，有一些重要的事情。
 
-1. New function [copy_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/fork.c#L5) is introduced. `copy_process` takes 2 arguments: a function to execute in a new thread and an argument that need to be passed to this function. `copy_process` allocates a new `task_struct`  and makes it available for the scheduler.
-1. Another new function for us is called [schedule](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L21). This is the core scheduler function: it checks whether there is a new task that needs to preempt the current one. A task can voluntarily call `schedule` if it doesn't have any work to do at the moment. `schedule` is also called from the timer interrupt handler.
+1. 新函数 [copy_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/fork.c#L5) 介绍。 `copy_process` 需要2个参数: 在新线程中执行的函数以及需要传递给该函数的参数。 `copy_process` 分配一个新的 `task_struct`  并使其可用于调度程序。
+2. 我们的另一个新函数称为 [schedule](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L21). 这是核心调度程序功能：它检查是否有新任务需要抢占当前任务。如果任务目前没有任何工作，可以自动调用`计划`。 计时器中断处理程序也会调用 `schedule`。
 
-We are calling `copy_process` 2 times, each time passing a pointer to the [process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L9) function as the first argument. `process` function is very simple.
+我们两次调用`copy_process`， 每次传递指向 [process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L9) 作为第一个参数。处理功能非常简单。
 
-```
+```cpp
 void process(char *array)
 {
     while (1){
@@ -98,13 +99,13 @@ void process(char *array)
 }
 ```
 
-It just keeps printing on the screen characters from the array, that is passed as an argument The first time it is called with the argument "12345" and second time the argument is "abcde". If our scheduler implementation is correct, we should see on the screen mixed output from both threads.
+它只是一直在屏幕上打印数组中的字符，将其作为参数传递。第一次使用参数 `12345` 调用它，第二次使用 `abcde` 参数。如果我们的调度程序实现正确，我们应该在屏幕上看到两个线程的混合输出。
 
-### Memory allocation
+### 内存分配
 
-Each task in the system should have its dedicated stack. That's why when creating a new task we must have a way to allocate memory. For now, our memory allocator is extremely primitive. (The implementation can be found in [mm.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/mm.c) file)
+系统中的每个任务都应具有其专用的堆栈。这就是为什么在创建新任务时我们必须有一种分配内存的方法。目前，我们的内存分配器非常原始。 (可以在以下位置找到实现 [mm.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/mm.c) 文件)
 
-```
+```cpp
 static unsigned short mem_map [ PAGING_PAGES ] = {0,};
 
 unsigned long get_free_page()
@@ -122,16 +123,17 @@ void free_page(unsigned long p){
     mem_map[p / PAGE_SIZE] = 0;
 }
 ```
-The allocator can work only with memory pages (each page is 4 KB in size). There is an array called `mem_map` that for each page in the system holds its status: whether it is allocated or free. Whenever we need to allocate a new page, we just loop through this array and return the first free page. This implementation is based on 2 assumptions:
 
-1. We know the total amount of memory in the system. It is `1 GB - 1 MB` (the last megabyte of memory is reserved for device registers.). This value is stored in the [HIGH_MEMORY](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/mm.h#L14) constant.
-1. First 4 MB of memory are reserved for the kernel image and init task stack. This value is stored in [LOW_MEMORY](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/mm.h#L13) constant. All memory allocations start right after this point.
+分配器只能与内存页面一起使用（每个页面的大小为4 KB）。有一个名为 `mem_map` 的数组，该数组对于系统中的每个页面都保持其状态：分配还是空闲。 每当我们需要分配一个新页面时，我们就循环遍历此数组并返回第一个空闲页面。此实现基于两个假设：
 
-### Creating a new task
+1. 我们知道系统中的内存总量。 它是 `1 GB - 1 MB` (存储器的最后兆字节为设备寄存器保留。). 此值存储在 [HIGH_MEMORY](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/mm.h#L14) 常量中.
+1. 前4 MB的内存保留给内核映像和init任务堆栈。 此值存储在 [LOW_MEMORY](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/mm.h#L13) 常量. 所有内存分配都在此之后开始。
 
-New task allocation is implemented in [copy_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/fork.c#L5) function.
+### 创建一个新任务
 
-```
+新任务分配在 [copy_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/fork.c#L5) 函数.
+
+```cpp
 int copy_process(unsigned long fn, unsigned long arg)
 {
     preempt_disable();
@@ -156,14 +158,14 @@ int copy_process(unsigned long fn, unsigned long arg)
 }
 ```
 
-Now, we are going to examine it in details.
+现在，我们将详细研究它。
 
 ```
     preempt_disable();
     struct task_struct *p;
 ```
 
-The function starts with disabling preemption and allocating a pointer for the new task. Preemption is disabled because we don't want to be rescheduled to a different task in the middle of the `copy_process` function.
+该函数从禁用抢占和为新任务分配指针开始。抢占已禁用，因为我们不想在 `copy_process` 函数中间将其重新安排到其他任务。
 
 ```
     p = (struct task_struct *) get_free_page();
@@ -171,27 +173,27 @@ The function starts with disabling preemption and allocating a pointer for the n
         return 1;
 ```
 
-Next, a new page is allocated. At the bottom of this page, we are putting the `task_struct` for the newly created task. The rest of this page will be used as the task stack.
+接下来，分配一个新页面。在此页面的底部，我们为新创建的任务放置 `task_struct`。该页面的其余部分将用作任务堆栈。
 
-```
+```cpp
     p->priority = current->priority;
     p->state = TASK_RUNNING;
     p->counter = p->priority;
     p->preempt_count = 1; //disable preemtion until schedule_tail
 ```
 
-After the `task_struct` is allocated, we can initialize its properties.  Priority and initial counters are set based on the current task priority. The state is set to `TASK_RUNNING`, indicating that the new task is ready to be started. `preempt_count` is set to 1, meaning that after the task is executed it should not be rescheduled until it completes some initialization work.
+分配好`task_struct`之后，我们可以初始化其属性。优先级和初始计数器是根据当前任务优先级设置的。状态设置为 `TASK_RUNNING` ，表示新任务已准备好开始。 `preempt_count`设置为1，这意味着在执行任务之后，在完成一些初始化工作之前，不应重新计划其时间。
 
-```
+```cpp
     p->cpu_context.x19 = fn;
     p->cpu_context.x20 = arg;
     p->cpu_context.pc = (unsigned long)ret_from_fork;
     p->cpu_context.sp = (unsigned long)p + THREAD_SIZE;
 ```
 
-This is the most important part of the function. Here `cpu_context` is initialized. The stack pointer is set to the top of the newly allocated memory page. `pc`  is set to the [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L146) function, and we need to look at this function now in order to understand why the rest of the `cpu_context` registers are initialized in the way they are.
+这是功能最重要的部分。 这里 `cpu_context` 被初始化. 堆栈指针设置在新分配的内存页面的顶部。 `pc`  被设置为 [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L146) 函数, 并且我们现在需要看一下这个函数，以便理解为什么其余`cpu_context`寄存器以它们的方式初始化。
 
-```
+```cpp
 .globl ret_from_fork
 ret_from_fork:
     bl    schedule_tail
@@ -199,9 +201,9 @@ ret_from_fork:
     blr    x19         //should never return
 ```
 
-As you can see `ret_from_fork` first call [schedule_tail](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L65), which just enabled preemption, and then it calls the function stored in `x19` register with the argument stored in `x20`. `x19` and `x20` are restored from the `cpu_context` just before `ret_from_fork` function is called. 
+如您所见，`ret_from_fork`第一次调用 [schedule_tail](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L65), 只是启用了抢占，然后使用存储在`x20`中的参数调用存储在`x19`寄存器中的函数。 在调用`ret_from_fork`函数之前，从`cpu_context`中恢复出`x19`和`x20`。
 
-Now, let's go back to `copy_process`.
+现在，让我们回到`copy_process`。
 
 ```
     int pid = nr_tasks++;
@@ -210,20 +212,20 @@ Now, let's go back to `copy_process`.
     return 0;
 ```
 
-Finally, `copy_process` adds the newly created task to the `task` array and enables preemption for the current task.
+最后，`copy_process` 将新创建的任务添加到 `task` 数组中，并为当前任务启用抢占。
 
-An important thing to understand about the `copy_process` function is that after it finishes execution, no context switch happens. The function only prepares new `task_struct` and adds it to the `task` array — this task will be executed only after `schedule` function is called.
+关于`copy_process`函数要了解的重要一点是，它在完成执行后不会发生上下文切换。该函数仅准备新的`task_struct`并将其添加到`task`数组中-仅在调用`schedule`函数后才执行此任务。
 
-### Who calls `schedule`?
+### 谁调用 `schedule`?
 
-Before we get into the details of the `schedule` function, lets first figure out how `schedule` is called. There are 2 scenarios.
+在深入了解`schedule`功能之前，首先要弄清楚`schedule`的调用方式。有2种情况。
 
-1. When one task doesn't have anything to do right now, but it nevertheless can't be terminated, it can call `schedule` voluntarily. That is something `kernel_main` function does.
-1. `schedule` is also called on a regular basis from the [timer interrupt handler](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/timer.c#L21).
+1. 当一个任务现在没有任何事情要做，但是仍然无法终止时，它可以自动调用`schedule`。那就是`kernel_main`函数所做的。
+1. `schedule` 也定期从 [timer interrupt handler 时钟终端句柄](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/timer.c#L21).
 
-Now let's take a look at [timer_tick](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L70) function, which is called from the timer interrupt.
+现在让我们来看看 [timer_tick](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L70) 函数, 从计时器中断中调用。
 
-```
+```cpp
 void timer_tick()
 {
     --current->counter;
@@ -236,13 +238,13 @@ void timer_tick()
     disable_irq();
 ```
 
-First of all, it decreases current task's counter. If the counter is greater then 0 or preemption is currently disabled the function returns, but otherwise`schedule` is called with interrupts enabled. (We are inside an interrupt handler, and interrupts are disabled by default) We will see why interrupts must be enabled during scheduler execution in the next section.
+首先，它减少了当前任务的计数器。如果计数器大于0，或者当前禁用了抢占功能，则返回该函数，否则调用`schedule`并启用中断。 （我们在中断处理程序内部，默认情况下禁用中断）。在下一部分中，我们将了解为什么在调度程序执行期间必须启用中断。
 
 ### Scheduling algorithm
 
-Finally, we are ready to look at the scheduler algorithm. I almost precisely copied this algorithm from the first release of the Linux kernel. You can find the original version [here](https://github.com/zavg/linux-0.01/blob/master/kernel/sched.c#L68).
+最后，我们准备看一下调度程序算法。我几乎是从Linux内核的第一个发行版中精确复制了此算法。您可以找到原始版本在 [这里](https://github.com/zavg/linux-0.01/blob/master/kernel/sched.c#L68).
 
-```
+```cpp
 void _schedule(void)
 {
     preempt_disable();
@@ -273,22 +275,23 @@ void _schedule(void)
 }
 ```
 
-The algorithm works like the following:
+该算法的工作原理如下：
 
- * The first inner `for` loop iterates over all tasks and tries to find a task in `TASK_RUNNING` state with the maximum counter. If such task is found and its counter is greater then 0, we immediately break from the outer `while` loop and switch to this task. If no such task is found this means that no tasks in `TASK_RUNNING`  state currently exist or all such tasks have 0 counters. In a real OS, the first case might happen, for example, when all tasks are waiting for an interrupt. In this case, the second nested `for` loop is executed. For each task (no matter what state it is in) this loop increases its counter. The counter increase is done in a very smart way:
+ * 第一个内部的`for`循环遍历所有任务，并尝试以最大计数器找到处于`TASK_RUNNING`状态的任务。如果找到了这样的任务，并且其计数器大于0，我们立即从外部的 `while` 循环中中断，并切换到该任务。如果找不到这样的任务，则意味着当前不存在处于 `TASK_RUNNING` 状态的任务，或者所有此类任务的计数器均为0。在实际的OS中，例如，当所有任务都在等待中断时，可能会发生第一种情况。在这种情况下，将执行第二个嵌套的 `for` 循环。对于每个任务（无论处于什么状态），此循环都会增加其计数器。计数器增加以非常聪明的方式完成：
 
-    1. The more iterations of the second `for` loop a task passes, the more its counter will be increased.
-    2. A task counter can never get larger than `2 * priority`.
 
-* Then the process is repeated. If there are at least one task in `TASK_RUNNIG` state, the second iteration of the outer `while` loop will be the last one because after the first iteration all counters are already non-zero. However, if no `TASK_RUNNING` tasks are there, the process is repeated over and over again until some of the tasks will move to `TASK_RUNNING` state. But if we are running on a single CPU, how then a task state can change while this loop is running? The answer is that if some task is waiting for an interrupt, this interrupt can happen while `schedule` function is executed and interrupt handler can change the state of the task. This actually explains why interrupts must be enabled during `schedule` execution. This also demonstrates an important distinction between disabling interrupts and disabling preemption. `schedule` disables preemption for the duration of the whole function. This ensures that nested `schedule` will not be called while we are in the middle of the original function execution. However, interrupts can legally happen during `schedule` function execution.
+    1. 任务通过的第二个`for` 循环的迭代次数越多，其计数器的计数就越高。
+    2. 任务计数器永远不能超过 `2 *优先级`。
 
-I paid a lot of attention to the situation where some task is waiting for an interrupt, though this functionality isn't implemented in the RPi OS yet. But I still consider it necessary to understand this case because it is a part of the core scheduler algorithm and similar functionality will be added later. 
+* 然后重复该过程。如果至少有一个任务处于`TASK_RUNNIG`状态，则外部`while`循环的第二次迭代将是最后一个，因为在第一次迭代之后，所有计数器都已经非零。但是，如果没有 `TASK_RUNNING` 任务，则该过程会反复进行，直到某些任务变为 `TASK_RUNNING` 状态。但是，如果我们在单个CPU上运行，那么在此循环运行时如何更改任务状态？答案是，如果某些任务正在等待中断，则该中断可能在执行`计划`功能时发生，并且中断处理程序可以更改任务的状态。这实际上解释了为什么在“计划”执行期间必须启用中断。这也说明了禁用中断和禁用抢占之间的重要区别。时间表会在整个功能期间禁用抢占。这样可以确保在我们执行原始函数的过程中不会调用嵌套的 `schedule`。但是，在 `计划` 函数执行期间，中断可能合法发生。
 
-### Switching tasks
+我非常注意某些任务正在等待中断的情况，尽管RPi OS尚未实现此功能。但是我仍然认为有必要了解这种情况，因为它是核心调度程序算法的一部分，以后将添加类似的功能。
 
-After the task in `TASK_RUNNING` state with non-zero counter is found, [switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L56) function is called. It looks like this.
+### 切换任务
 
-```
+找到具有非零计数器的 `TASK_RUNNING` 状态的任务后, [switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L56) 函数被调用。 看起来像这样。
+
+```cpp
 void switch_to(struct task_struct * next)
 {
     if (current == next)
@@ -299,9 +302,9 @@ void switch_to(struct task_struct * next)
 }
 ```
 
-Here we check that next process is not the same as the current, and if not, `current` variable is updated. The actual work is redirected to [cpu_switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.S) function.
+在这里，我们检查下一个过程是否与当前过程不同，如果不一致，则更新`current`变量。实际工作被重定向到 [cpu_switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.S) 函数.
 
-```
+```cpp
 .globl cpu_switch_to
 cpu_switch_to:
     mov    x10, #THREAD_CPU_CONTEXT
@@ -326,14 +329,14 @@ cpu_switch_to:
     ret
 ```
 
-This is the place where the real context switch happens. Let's examine it line by line.
+这是实际上下文切换发生的地方。让我们逐行检查它。
 
 ```
     mov    x10, #THREAD_CPU_CONTEXT
     add    x8, x0, x10
 ```
 
-`THREAD_CPU_CONTEXT` constant contains offset of the `cpu_context` structure in the `task_struct`. `x0` contains a pointer to the first argument, which is the current `task_struct` (by current here I mean the one we are switching from).  After the copied 2 lines are executed, `x8` will contain a pointer to the current `cpu_context`.
+`THREAD_CPU_CONTEXT`常量包含`task_struct`中的`cpu_context`结构的偏移量。 `x0`包含一个指向第一个参数的指针，该指针是当前的`task_struct`（在这里，当前是指我们要从中切换的那个）。复制的两行执行后，`x8`将包含指向当前`cpu_context`的指针。
 
 ```
     mov    x9, sp
@@ -345,13 +348,14 @@ This is the place where the real context switch happens. Let's examine it line b
     stp    x29, x9, [x8], #16
     str    x30, [x8]
 ```
-Next all calle-saved registers are stored in the order, in which they are defined in `cpu_context` structure. `x30`, which is the link register and contains function return address, is stored as `pc`, current stack pointer is saved as `sp` and `x29` is saved as `fp` (frame pointer).
+
+接下来，所有保存有`calle`的寄存器都按照在`cpu_context`结构中定义的顺序存储。 `x30`是链接寄存器，包含函数返回地址，存储为`pc`，当前堆栈指针存储为`sp`，`x29`存储为`fp`（帧指针）。
 
 ```
     add    x8, x1, x10
 ```
 
-Now `x10` contains an offset of the `cpu_context` structure inside `task_struct`, `x1` is a pointer to the next `task_struct`, so `x8` will contain a pointer to the next `cpu_context`.
+现在，`x10`包含在`task_struct`内部的`cpu_context`结构的偏移量，`x1`是指向下一个`task_struct`的指针，因此`x8`将包含指向下一个`cpu_context`的指针。
 
 ```
     ldp    x19, x20, [x8], #16        // restore callee-saved registers
@@ -364,23 +368,24 @@ Now `x10` contains an offset of the `cpu_context` structure inside `task_struct`
     mov    sp, x9
 ```
 
-Callee saved registers are restored from the next `cpu_context`.
+被调用者保存的寄存器从下一个`cpu_context`恢复。
 
 ```
     ret
 ```
 
-Function returns to the location pointed to by the link register (`x30`) If we are switching to some task for the first time, this will be [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L148) function. In all other cases this will be the location, previously saved in the `cpu_context` by the `cpu_switch_to` function.
+函数返回到链接寄存器（`x30`）所指向的位置。如果我们是第一次切换到某个任务，则将 [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L148) 函数。 在所有其他情况下，该位置将是先前由`cpu_switch_to`函数保存在`cpu_context`中的位置。
 
-### How scheduling works with exception entry/exit?
+### 调度如何与异常进入/退出一起工作？
 
-In the previous lesson, we have seen how [kernel_entry](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L17) and [kernel_exit](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L4) macros are used to save and restore the processor state. After the scheduler has been introduced, a new problem arrives: now it becomes fully legal to enter an interrupt as one task and leave it as a different one. This is a problem, because `eret` instruction, which we are using to return from an interrupts, relies on the fact that return address should be stored in `elr_el1` and processor state in `spsr_el1` registers. So, if we want to switch tasks while processing an interrupt, we must save and restore those 2 registers alongside with all other general purpose registers. The code that does this is very straightforward, you can find the save part [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L35) and restore [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L46).
+在上一课中，我们看到了[kernel_entry](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L17) 和 [kernel_exit](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L4) 宏用于保存和恢复处理器状态。 引入调度程序后，出现了一个新问题：现在完全可以合法地将中断作为一项任务输入，而将其保留为另一项任务。这是一个问题，因为我们用来从中断返回的 `eret` 指令依赖于以下事实：返回地址应存储在 `elr_el1` 中，处理器状态应存储在 `spsr_el1` 寄存器中。因此，如果要在处理中断时切换任务，则必须将这两个寄存器与所有其他通用寄存器一起保存和恢复。 这样做的代码非常简单，您可以找到保存部分在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L35) 和 恢复到 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L46).
 
-### Tracking system state during a context switch
+### 在上下文切换期间跟踪系统状态
 
-We have already examined all source code related to the context switch. However, that code contains a lot of asynchronous interactions that make it difficult to fully understand how the state of the whole system changes over time. In this section I want to make this task easier for you: I want to describe the sequence of events that happen from system startup to the time of the second context switch. For each such event, I will also include a diagram representing the state of the memory at the time of the event. I hope that such representation will help you to get a deep understanding of how the scheduler works. So, let's start!
+我们已经检查了与上下文切换有关的所有源代码。但是，该代码包含许多异步交互，这使得很难完全了解整个系统的状态如何随时间变化。在本节中，我想让您更轻松地完成此任务：我想描述从系统启动到第二次上下文切换之时发生的事件的顺序。对于每个此类事件，我还将包括一个表示事件发生时存储器状态的图表。我希望这种表示形式将帮助您深入了解调度程序的工作方式。所以，让我们开始吧！
 
-1. The kernel is initialized and [kernel_main](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L19) function is executed. The initial stack is configured to start at [LOW_MEMORY](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/mm.h#L13), which is 4 MB.
+1. 内核已初始化并 [kernel_main](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L19) 函数已被执行. 初始堆栈配置为开始于 [LOW_MEMORY](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/include/mm.h#L13), 这是4 MB。
+    
     ```
              0 +------------------+
                | kernel image     |
@@ -395,7 +400,9 @@ We have already examined all source code related to the context switch. However,
                | device registers |
     0x40000000 +------------------+
     ```
-1. `kernel_main` calls [copy_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/fork.c#L5) for the first time. New 4 KB memory page is allocated, and `task_struct` is placed at the bottom of this page. (Later I will refer to the task created at this point as "task 1")
+
+1. `kernel_main` 首次调用 [copy_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/fork.c#L5) 。 分配了新的4 KB内存页面，并在该页面的底部放置了 `task_struct`。 （稍后，我将在此时创建的任务称为`任务1`）
+    
     ```
              0 +------------------+
                | kernel image     |
@@ -414,7 +421,9 @@ We have already examined all source code related to the context switch. However,
                | device registers |
     0x40000000 +------------------+
     ```
-1.  `kernel_main` calls `copy_process` for the second time and the same process repeats. Task 2 is created and added to the task list.
+    
+1.  `kernel_main`第二次调用`copy_process`并且重复相同的过程。任务2已创建并添加到任务列表。
+    
     ```
              0 +------------------+
                | kernel image     |
@@ -437,11 +446,13 @@ We have already examined all source code related to the context switch. However,
                | device registers |
     0x40000000 +------------------+
     ```
-1. `kernel_main` voluntarily calls [schedule](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L21) function and it decides to run task 1.
-1. [cpu_switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.S#L4) saves calee-saved registers in the init task `cpu_context`, which is located inside the kernel image.
-1. `cpu_switch_to` restores calee-saved registers from task 1 `cpu_context`. `sp` now points to `0x00401000`, link register to [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L146) function, `x19` contains a pointer to [process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L9) function and `x20` a pointer to string "12345", which is located somewhere in the kernel image.
-1. `cpu_switch_to` calls `ret` instruction, which jumps to the `ret_from_fork` function.
-1. `ret_from_fork` reads `x19` and `x20` registers and  calls `process` function with the argument "12345". After `process` function starts to execute its stack begins to grow.
+
+1. `kernel_main` 自动调用 [schedule](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L21) 功能并决定运行任务1。
+1. [cpu_switch_to](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.S#L4) 将保存了`calee`的寄存器保存在位于内核映像内部的init任务 `cpu_context` 中。
+1. `cpu_switch_to` 从任务1恢复已保存日历的寄存器 `cpu_context`. `sp` 现在指向 `0x00401000`, 链接注册到 [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L146) 函数, `x19` 包含一个指向 [process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/kernel.c#L9) 函数 和 `x20` 一个指向字符串 `12345`的指针，该字符串位于内核映像中的某个位置。
+1. `cpu_switch_to` 调用`ret`指令，该指令跳转到`ret_from_fork`函数。
+1. `ret_from_fork` 读取 `x19` 和 `x20` 寄存器，并使用参数 `12345` 调用 `process` 函数。在`process`函数开始执行后，其堆栈开始增长。
+    
     ```
              0 +------------------+
                | kernel image     |
@@ -466,7 +477,9 @@ We have already examined all source code related to the context switch. However,
                | device registers |
     0x40000000 +------------------+
     ```
-1. A timer interrupt occured. [kernel_entry](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L17) macro saves all general purpose registers + `elr_el1` and `spsr_el1` to the bottom of task 1 stack.
+
+1. 发生计时器中断。 [kernel_entry](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/entry.S#L17) 宏保存所有通用寄存器 + `elr_el1` 和 `spsr_el1` 到任务1堆栈的底部。
+
     ```
              0 +------------------------+
                | kernel image           |
@@ -493,7 +506,9 @@ We have already examined all source code related to the context switch. However,
                | device registers       |
     0x40000000 +------------------------+
     ```
-1. `schedule` is called and it decides to run task 2. But we still run task 1 and its stack continues to grow below task 1 saved registers region. On the diagram, this part of the stack is marked as (int), which means "interrupt stack"
+
+1. `schedule` 被调用 并且它决定运行任务2。但是我们仍然运行任务1，并且其堆栈继续增长到任务1保存的寄存器区域以下。在图中，堆栈的这一部分标记为（int），表示“中断堆栈”
+
     ```
              0 +------------------------+
                | kernel image           |
@@ -522,7 +537,9 @@ We have already examined all source code related to the context switch. However,
                | device registers       |
     0x40000000 +------------------------+
     ```
-1. `cpu_switch_to` runs task 2. In order to do this, it executes exactly the same sequence of steps that it does for task 1. Task 2 started to execute and it stack grows. Note, that we didn't return from an interrupt at this point, but this is ok because interrupts now are enabled (interrupts have been enabled previously in [timer_tick](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L70) before `schedule` was called)
+
+1. `cpu_switch_to` 运行任务2。为此，它执行与任务1完全相同的步骤序列。任务2开始执行，并且堆栈不断增长。请注意，我们此时并未从中断返回， 但这没关系，因为现在已启用中断 (先前已在 [timer_tick](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L70) 之前 `schedule` 被调用)
+    
     ```
              0 +------------------------+
                | kernel image           |
@@ -553,7 +570,9 @@ We have already examined all source code related to the context switch. However,
                | device registers       |
     0x40000000 +------------------------+
     ```
-1. Another timer interrupt happens and `kernel_entry` saves all general purpose registers + `elr_el1` and `spsr_el1` at the bottom of task 2 stack. Task 2 interrupt stack begins to grow.
+
+1. 另一个定时器中断发生，`kernel_entry`将所有通用寄存器+`elr_el1`和`spsr_el1`保存在任务2堆栈的底部。任务2中断堆栈开始增长。
+
     ```
              0 +------------------------+
                | kernel image           |
@@ -588,10 +607,12 @@ We have already examined all source code related to the context switch. However,
                | device registers       |
     0x40000000 +------------------------+
     ```
-1. `schedule` is called. It observes that all tasks have their counters set to 0 and set counters to their tasks priorities.
-1. `schedule` selects init task to run. (This is because all tasks now have their counters set to 1 and init task is the first in the list). But actually, it would be fully legal for `schedule` to select task 1 or task 2 at this point, because their counters has equal values. We are more interested in the case when task 1 is selected so let's now assume that this is what had happened.
-1. `cpu_switch_to` is called and it restores previously saved callee-saved registers from task 1 `cpu_context`. Link register now points [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L63) because this is the place from which `cpu_switch_to` was called last time when task 1 was executed. `sp` points to the bottom of task 1 interrupt stack.
-1. `timer_tick` function resumes execution, starting from [this](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L79) line. It disables interrupts and finally [kernel_exit](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L79) is executed. By the time `kernel_exit` is called, task 1 interrupt stack is collapsed to 0.
+
+1. `schedule` 被调用. 它观察到所有任务的计数器都设置为0，并将计数器设置为任务优先级。
+1. `schedule` 选择要运行的初始化任务. （这是因为现在所有任务的计数器都设置为1，而`init`任务是列表中的第一个）。但是实际上，此时 `计划` 选择任务1或任务2是完全合法的，因为它们的计数器值相等。我们对选择任务1的情况更感兴趣，所以现在让我们假设这是发生了什么。
+1. `cpu_switch_to` 被调用 并从任务1恢复以前保存的被调用方保存的寄存器 `cpu_context`. 链接现在注册要点到 [这](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L63) 因为这是上次执行任务1时调用`cpu_switch_to`的位置。 `sp` 指向任务1中断堆栈的底部。
+1. `timer_tick` 函数恢复执行, 从 [这](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L79) 行开始. 最终禁用中断 [kernel_exit](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson04/src/sched.c#L79) 被执行。 到调用 `kernel_exit` 时，任务1的中断堆栈已折叠为0。
+    
     ```
              0 +------------------------+
                | kernel image           |
@@ -624,7 +645,9 @@ We have already examined all source code related to the context switch. However,
                | device registers       |
     0x40000000 +------------------------+
     ```
-1. `kernel_exit` restores all general purpose registers as well as `elr_el1` and `spsr_el1`. `elr_el1` now points somewhere in the middle of the `process` function. `sp` points to the bottom of task 1 stack.
+
+1. `kernel_exit` 恢复所有通用寄存器以及`elr_el1` 和 `spsr_el1`. `elr_el1` 现在指向 `process` 函数中间的某个位置。 `sp`指向任务1堆栈的底部。
+    
     ```
              0 +------------------------+
                | kernel image           |
@@ -655,18 +678,19 @@ We have already examined all source code related to the context switch. However,
                | device registers       |
     0x40000000 +------------------------+
     ```
-1. `kernel_exit` executes `eret` instruction which uses `elr_el1` register to jump back to `process` function. Task 1 resumes it normal execution.
 
-The described above sequence of steps is very important — I personally consider it one of the most important things in the whole tutorial. If you have difficulties with understanding it, I can advise you to work on the exercise number 1 from this lesson.
+1. `kernel_exit` 执行 `eret` 使用的指令 `elr_el1` 注册以跳转回 `process` 函数. 任务1恢复其正常执行。
 
-### Conclusion
+上述步骤顺序非常重要 - 我个人认为这是整个教程中最重要的事情之一。如果您在理解上有困难，我可以建议您从本课开始进行练习1。
 
-We are done with scheduling, but right now our kernel can manage only kernel threads: they are executed at EL1 and can directly access any kernel functions or data. In the next 2 lessons we are going fix this and introduce system calls and virtual memory.
+### 结论
 
-##### Previous Page
+我们已经完成了调度，但是现在我们的内核只能管理内核线程：它们在`EL1`上执行，并且可以直接访问任何内核函数或数据。在接下来的2节课中，我们将解决此问题，并介绍系统调用和虚拟内存。
 
-3.5 [Interrupt handling: Exercises](../../docs/lesson03/exercises.md)
+##### 上一页
 
-##### Next Page
+3.5 [中断处理：练习](../../docs/lesson03/exercises.md)
 
-4.2 [Process scheduler: Scheduler basic structures](../../docs/lesson04/linux/basic_structures.md)
+##### 下一页
+
+4.2 [流程调度程序：调度程序的基本结构](../../docs/lesson04/linux/basic_structures.md)

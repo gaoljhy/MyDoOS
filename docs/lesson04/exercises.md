@@ -1,15 +1,15 @@
-## 4.5: Exercises
+## 4.5: 练习题
 
-1. Add `printf` to all main kernel functions to output information about the curent memory and processor state. Make sure that the state diagrams, that I've added to the end of the RPi OS part of this lesson, are correct.  (You do not necessarily need to output all state each time, but as soon as some major event happens you can output current stack pointer, or address of the object that has just been allocated, or whatever you consider necessary. Think about some mechanism to prevent information overflow) 
-1. Introduce a way to assign priority to the tasks. Make sure that a task with higher priority gets more processor time that the one with lower priority.
-1. Allow user processes to use FP/SIMD registers. Those registers should be saved in the task context and swapped during the context switch.
-1. Allow the kernel to have an unlimited number of tasks (right now the limit is 64). 
-1. Adopt lesson 04 to run on qemu. Check [this](https://github.com/s-matyukevich/raspberry-pi-os/issues/8) issue for reference.
+1. 将`printf`添加到所有主要的内核函数中，以输出有关当前内存和处理器状态的信息。确保在本课的RPi OS部分的末尾添加的状态图是正确的。 （您不必每次都输出所有状态，但是，一旦发生一些重大事件，您就可以输出当前的堆栈指针，刚分配的对象的地址或您认为必要的任何东西。防止信息溢出）
+1. 介绍一种为任务分配优先级的方法。确保具有较高优先级的任务比具有较低优先级的任务获得更多的处理器时间。
+1. 允许用户进程使用FP /SIMD寄存器。这些寄存器应保存在任务上下文中，并在上下文切换期间交换。
+1. 允许内核具有无限数量的任务（现在限制为64）。
+1. 通过第04课在qemu上运行。 校验 [这个](https://github.com/s-matyukevich/raspberry-pi-os/issues/8) issue 以供参考.
 
-##### Previous Page
+##### 上一页
 
-4.4 [Process scheduler: Scheduler](../../docs/lesson04/linux/scheduler.md)
+4.4 [流程调度程序：调度程序](../../docs/lesson04/linux/scheduler.md)
 
-##### Next Page
+##### 下一页
 
-5.1 [User processes and system calls: RPi OS](../../docs/lesson05/rpi-os.md)
+5.1 [用户进程和系统调用：RPi OS](../../docs/lesson05/rpi-os.md)

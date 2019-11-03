@@ -1,54 +1,55 @@
 ## 4.4: Scheduler
 
-We have already learned a lot of details about the Linux scheduler inner workings, so there is not so much left for us. To make the whole picture complete in this chapter we will take a look at 2 important scheduler entry points:
+我们已经了解了许多有关Linux调度程序内部工作原理的详细信息，因此我们所剩无几。为了使本章更加完整，我们将介绍两个重要的调度程序入口点：
 
-1. [scheduler_tick()](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3003) function, which  is called at each timer interrupt.
-1. [schedule()](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3418) function, which is called each time when the current task needs to be rescheduled.
+1. [scheduler_tick()](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3003) 函数，在每个定时器中断时调用。
+1. [schedule()](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3418) 函数，每次需要重新安排当前任务时调用。
 
-The third major thing that we are going to investigate in this chapter is the concept of context switch. A context switch is the process that suspends the current task and runs another task instead - this process is highly architecture specific and closely correlates with what we have been doing when working with RPi OS.
+本章要研究的第三项主要内容是上下文切换的概念。上下文切换是挂起当前任务并运行另一个任务的过程-该过程是高度特定于体系结构的，并且与我们使用RPi OS时所做的工作紧密相关。
 
 ### scheduler_tick
 
-This function is important for 2 reasons:
+此功能很重要，原因有两个：
 
-1. It provides a way for the scheduler to update time statistics and runtime information for the current task.
-1. Runtime information then is used to determine whether the current task needs to be preempted, and if so `schedule()` function is called.
+1. 它为调度程序提供了一种更新当前任务的时间统计信息和运行时信息的方法。
+1. 然后，运行时信息用于确定是否需要抢占当前任务，如果是，则调用`schedule()`函数。
 
-As well as most of the previously explored functions, `scheduler_tick` is too complex to be fully explained - instead, as usual, I will just highlight the most important parts.
+与大多数以前探索的功能一样，`scheduler_tick` 太复杂而无法完全解释-相反，像往常一样，我将仅强调最重要的部分。
 
-1. The main work is done inside CFS method [task_tick_fair](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L9044). This method calls [entity_tick](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3990) for the `sched_entity` corresponding to the current task. When looking at the source code, you may be wondering why instead of just calling `entry_tick` for the current `sched_entry`, `for_each_sched_entity` macro is used instead?  `for_each_sched_entity` doesn't iterate over all `sched_entry` in the system. Instead, it only traverses the `sched_entry`  inheritance tree up to the root. This is useful when tasks are grouped - after updating runtime information for a particular task, `sched_entry` corresponding to the whole group is also updated.
+1. 主要工作在CFS方法内部完成 [task_tick_fair](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L9044). 该方法调用 [entity_tick](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3990) 对应于当前任务的 `sched_entity` 。在查看源代码时，您可能想知道为什么不使用当前的`sched_entry`来调用`entry_tick`而是使用`for_each_sched_entity`宏呢？ `for_each_sched_entity`不会遍历系统中的所有`sched_entry`。相反，它仅遍历`sched_entry`继承树直到根。当对任务进行分组时，这很有用 - 在更新特定任务的运行时信息后，也会更新与整个组相对应的`sched_entry`。
 
-1. [entity_tick](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3990) does 2 main things:
-  * Calls [update_curr](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L827), which is responsible for updating task's `vruntime` as well as runqueue's `min_vruntime`. An important thing to remember here is that `vruntime` is always based on 2 things: how long task has actually been executed and tasks priority.
-  * Calls [check_preempt_tick](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3834), which checks whether the current task needs to be preempted. Preemption happens in 2 cases:
-    1. If the current task has been running for too long (the comparison is made using normal time, not `vruntime`). [link](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3842)
-    1. If there is a task with smaller `vruntime` and the difference between `vruntime` values is greater than some threshold. [link](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3866)
+1. [entity_tick](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3990) 做两件事:
+  * 调用 [update_curr](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L827), 它负责更新任务的 `vruntime` 和运行队列的 `min_vruntime`。这里要记住的重要一点是，`vruntime`始终基于两件事：实际执行任务多长时间和任务优先级。
+  * 调用 [check_preempt_tick](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3834), 检查当前任务是否需要抢占。抢占发生在2种情况下：
+    1. 如果当前任务已经运行了太长时间（比较使用的是正常时间，而不是`vruntime`）。 [link](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3842)
+    1. 如果任务的`vruntime`较小，并且`vruntime`值之间的差异大于某个阈值。 [link](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3866)
 
-    In both cases the current task is marked for preemption by calling [resched_curr](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L479) function.
+    在这两种情况下，当前任务都通过调用 [resched_curr](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L479) 函数来标记为抢占.
 
-We have already seen in the previous chapter how calling `resched_curr` leads to `TIF_NEED_RESCHED` flag being set for the current task and eventually `schedule` being called.
+我们已经在上一章中看到了如何调用`resched_curr`导致为当前任务设置`TIF_NEED_RESCHED`标志，并最终调用`schedule`。
 
-That's it about `schedule_tick` now we are finally ready to take a look at the `schedule` function.
+就是关于 `schedule_tick` 的事情了，现在我们终于可以看一下 `schedule` 功能了。
 
 ### schedule
 
-We have already seen so many examples were `schedule` is used, so now you are probably anxious to see how this function actually works. You will be surprised to know that the internals of this function are rather simple.
+我们已经看到了很多使用`schedule`的示例，因此现在您可能急于了解此函数的实际工作方式。您会惊讶地知道此函数的内部非常简单。
 
-1. The main work is done inside [__schedule](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3278)  function.
-1. `__schedule` calls [pick_next_task](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3199) which redirect most of the work to the [pick_next_task_fair](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L6251) method of the CFS scheduler.
-1. As you might expect `pick_next_task_fair` in a normal case just selects the leftmost element from the red-black tree and returns it. It happens [here](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3915).
-1. `__schedule` calls [context_switch](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L2750), which does some preparation work and calls architecture specific [__switch_to](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/process.c#L348) function, where low-level arch specific task parameters are prepared to the switch.
-1. `__switch_to` first switches some additional task components, like, for example, TLS (Thread-local Store) and saved floating point and NEON registers.
-1. Actual switch takes place in the assembler [cpu_switch_to](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/entry.S#L914) function. This function should be already familiar to you because I copied it almost without any changes to the RPi OS. As you might remember, this function switches callee-saved registers and task stack. After it returns, the new task will be running using its own kernel stack.
 
-### Conclusion
+1. 主要工作在内部 [__schedule](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3278)  函数完成.
+1. `__schedule` 调用 [pick_next_task](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L3199) 将大部分工作重定向到 [pick_next_task_fair](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L6251) CFS调度程序的方法。
+1. 如您所料 `pick_next_task_fair` 通常情况下，只需从红黑树中选择最左边的元素并返回它即可。 它在 [这里](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/fair.c#L3915).
+1. `__schedule` calls [context_switch](https://github.com/torvalds/linux/blob/v4.14/kernel/sched/core.c#L2750), 做一些准备工作并调用特定于体系结构 [__switch_to](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/process.c#L348) 函数, 在其中为交换机准备了低级别的特定于`Arch`的任务参数。
+1. `__switch_to` 首先切换一些其他任务组件，例如TLS（线程本地存储）和已保存的浮点和NEON寄存器。
+1. 实际切换发生在汇编 [cpu_switch_to](https://github.com/torvalds/linux/blob/v4.14/arch/arm64/kernel/entry.S#L914) 函数. 您应该已经熟悉此功能，因为我几乎没有复制RPi OS就复制了它。您可能还记得，此函数切换被调用者保存的寄存器和任务堆栈。返回后，新任务将使用其自己的内核堆栈运行。
 
-Now we are done with the Linux scheduler. The good thing is that it appears to be not so difficult if you focus only on the very basic workflow. After you understand the basic workflow you probably might want to to make another path through the schedule code and pay more attention to the details, because there are so many of them. But for now, we are happy with our current understanding and ready to move to the following lesson, which describes user processes and system calls.
+### 结论
 
-##### Previous Page
+现在我们完成了Linux调度程序。好处是，如果您只关注最基本的工作流程，似乎并不那么困难。了解基本的工作流程后，您可能需要在计划代码中另辟蹊径，并更加注意细节，因为其中有很多。但就目前而言，我们对当前的理解感到满意，并准备继续进行下一课，该课描述了用户流程和系统调用。
 
-4.3 [Process scheduler: Forking a task](../../../docs/lesson04/linux/fork.md)
+##### 上一页
 
-##### Next Page
+4.3 [流程计划程序：分派任务](../../../docs/lesson04/linux/fork.md)
 
-4.5 [Process scheduler: Exercises](../../../docs/lesson04/exercises.md)
+##### 下一页
+
+4.5 [流程计划程序：练习](../../../docs/lesson04/exercises.md)
