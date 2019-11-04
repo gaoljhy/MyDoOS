@@ -1,5 +1,0 @@
-
- _shedule chamado
-NR_TASKS: 6
-switch_to(task[0])
-;

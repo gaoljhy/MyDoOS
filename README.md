@@ -36,7 +36,7 @@
 ## 学习目录
 
 + Lesson 1: 内核初始化
-    1. 引入RPi OS或裸机“您好，世界！”
+    1. 引入my-os或裸机“您好，世界！”
     1. 项目结构
     1. 内核构建系统
     1. 启动顺序
@@ -74,4 +74,6 @@
 
 ## 参考
 
-+ <https://github.com/s-matyukevich/raspberry-pi-os>
++ <https://www.cl.cam.ac.uk/projects/raspberrypi/tutorials/os/index.html>
+<!-- + <https://github.com/gaoljhy/raspberry-pi-os> -->
+
