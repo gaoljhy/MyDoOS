@@ -1,21 +1,21 @@
-## 5.1: User processes and system calls
+## 5.1: 用户进程和系统调用
 
-We have already added a lot of features to the RPi OS that makes it looks like an actual operating system instead of just a bare metal program. The RPi OS can now manage processes, but there is still a major drawback in this functionality: there is no process isolation at all. In this lesson, we are going to fix this issue. First of all, we will move all user processes to EL0, which restricts their access to privileged processor operations. Without this step any other isolation techniques don't make sense, because any user program will be able to rewrite our security settings, thus breaking from isolation. 
+我们已经在RPi OS中添加了许多功能，使其看起来像一个实际的操作系统，而不仅仅是裸机程序。 RPi OS现在可以管理进程，但是此功能仍然存在一个主要缺点：根本没有进程隔离。在本课程中，我们将解决此问题。首先，我们将所有用户进程移至EL0，这将限制他们对特权处理器操作的访问。没有此步骤，任何其他隔离技术都没有意义，因为任何用户程序都将能够重写我们的安全设置，从而脱离隔离。
 
-If we restrict user programs from direct access to kernel functions, this brings us a different problem. What if a user program needs, for example, to print something to a user? We definitely don't want it to work with the UART device directly. Instead, it would be nice if the OS provides each program with a set of API methods. Such API can't be implemented as a simple set of methods, because each time a user program wants to call one of the API methods current exception level should be raised to EL1. Individual methods in such API are called "system calls", and in this lesson, we will add a set of system calls to the RPi OS.
+如果我们限制用户程序直接访问内核功能，这将给我们带来另一个问题。例如，如果用户程序需要向用户打印某些内容怎么办？我们绝对不希望它直接与UART一起使用。相反，如果操作系统为每个程序提供一组API方法，那就更好了。此类API不能实现为一组简单的方法，因为每次用户程序要调用一种API方法时，当前异常级别都应提高到EL1。这种API中的各个方法称为“系统调用”，在本课程中，我们将向RPi OS添加一组系统调用。
 
-There is also a third aspect of process isolation: each process should have its own independent view of memory — we are going to tackle this issue in the lesson 6.
+进程隔离还有第三个方面：每个进程都应该有自己独立的内存视图-我们将在第6课中解决这个问题。
 
-### System calls implementation
+### 系统调用实现
 
-The main idea behind system calls (syscalls for short) is very simple: each system call is actually a synchronous exception. If a user program need to execute a  syscall, it first has to to prepare all necessary arguments, and then run `svc` instruction. This instruction generates a synchronous exception. Such exceptions are handled at EL1 by the operating system. The OS then validates all arguments, performs the requested action and execute normal exception return, which ensures that the execution will resume at EL0 right after the `svc` instruction. The RPi OS defines 4 simple syscalls: 
+系统调用（简称`syscalls`）背后的主要思想非常简单：每个系统调用实际上都是一个同步异常。如果用户程序需要执行系统调用，它首先必须准备所有必要的参数，然后运行`svc`指令。该指令生成同步异常。此类异常由操作系统在EL1处理。然后，OS验证所有参数，执行请求的操作并执行正常的异常返回，以确保执行将在`svc`指令后立即在EL0恢复执行。 RPi操作系统定义了4个简单的系统调用：
 
-1. `write` This syscall outputs something on the screen using UART device. It accepts a buffer with the text to be printed as the first argument.
-1. `clone` This syscall creates a new user thread. The location of the stack for the newly created thread is passed as the first argument.
-1. `malloc` This system call allocates a memory page for a user process. There is no analog of this syscall in Linux (and I think in any other OS as well.) The only reason why we need it is that RPi OS doesn't implement virtual memory yet, and all user processes work with physical memory. That's why each process needs a way to figure out which memory page isn't occupied and can be used. `malloc` syscall return pointer to the newly allocated page or -1 in case of an error.
-1. `exit` Each process must call this syscall after it finishes execution. It will do all necessary cleanup.
+1. `write` 该系统调用使用UART设备在屏幕上输出某些内容。它接受带有要打印的文本作为第一个参数的缓冲区。
+1. `clone` 该系统调用将创建一个新的用户线程。新创建的线程的堆栈位置作为第一个参数传递。
+1. `malloc` 该系统调用为用户进程分配一个内存页。在Linux中没有类似的系统调用（我认为在其他任何操作系统中也是如此）。我们需要它的唯一原因是RPi OS尚未实现虚拟内存，并且所有用户进程都可以使用物理内存。这就是每个进程都需要一种方法来确定哪个内存页面未被占用并可以使用的原因。 `malloc` 系统调用返回指向新分配页面的指针，如果发生错误则返回`-1`。
+1. `exit` 每个进程完成执行后必须调用此`syscall`。它将进行所有必要的清理。
 
-All syscalls are defined in the [sys.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.c) file. There is also an array [sys_call_table](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.c) that contains pointers to all syscall handlers. Each syscall has a "syscall number" — this is just an index in the `sys_call_table` array. All syscall numbers are defined [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/sys.h#L6) — they are used by the assembler code to specify which syscall we are interested in. Let's use `write` syscall as an example and take a look at the syscall wrapper function. You can find it [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.S#L4).
+所有系统调用均在 [sys.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.c) 文件中. 还有一个数组 [sys_call_table](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.c) 包含指向所有`syscall`处理程序的指针。 每个系统调用都有一个 “系统调用号 `syscall number`” — 这只是 `sys_call_table` 数组. 所有系统调用号均已定义在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/sys.h#L6) — 汇编代码使用它们来指定我们感兴趣的`syscall`。让我们以`write` `syscall`为例，看看`syscall`包装函数。 你可以找到它在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.S#L4).
 
 ```
 .globl call_sys_write
@@ -25,13 +25,13 @@ call_sys_write:
     ret
 ```
 
-The function is very simple: it just stores syscall number in the `w8` register and generates a synchronous exception by executing `svc` instruction. `w8` is used for the syscall number by convention: registers `x0` — `x7`are used for syscall arguments and `x8` is used to store syscall number, this allows a syscall to have up to 8 arguments.
+该函数非常简单：它仅将系统调用号存储在`w8`寄存器中，并通过执行`svc`指令生成同步异常。按照惯例，`w8`用于系统调用编号：寄存器`x0`-`x7`用于系统调用参数，而`x8`用于存储系统调用编号，这允许系统调用最多包含8个参数。
 
-Such wrapper functions are usually not included in the kernel itself — you are more likely to find them in the different language's standard libraries, such as [glibc](https://www.gnu.org/software/libc/).
+此类包装函数通常不包含在内核本身中-您更有可能在其他语言的标准库中找到它们， 如 [glibc](https://www.gnu.org/software/libc/).
 
-### Handling synchronous exceptions
+### 处理同步异常
 
-After a synchronous exception is generated, the [handler](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/entry.S#L98), which is registered in the exception table, is called. The handler itself can be found [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/entry.S#L157) and it starts with the following code.
+生成同步异常后， [handler](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/entry.S#L98), 调用在异常表中注册的文件。可以找到处理程序本身在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/entry.S#L157) 它从以下代码开始。
 
 ```
 el0_sync:
@@ -43,7 +43,7 @@ el0_sync:
     handle_invalid_entry 0, SYNC_ERROR
 ```
 
-First of all, as for all exception handlers, `kernel_entry` macro is called. Then `esr_el1` (Exception Syndrome Register) is checked. This register contains "exception class" field at offset [ESR_ELx_EC_SHIFT](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/arm/sysregs.h#L46). If exception class is equal to [ESR_ELx_EC_SVC64](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/arm/sysregs.h#L47) this means that the current exception is caused by the `svc` instruction and it is a system call. In this case, we jump to `el0_svc` label and show an error message otherwise.
+首先，对于所有异常处理程序，将调用`kernel_entry`宏。然后检查 `esr_el1`（异常综合症寄存器）。 该寄存器在偏移处包含“异常类”字段 [ESR_ELx_EC_SHIFT](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/arm/sysregs.h#L46). 如果异常类等于 [ESR_ELx_EC_SVC64](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/arm/sysregs.h#L47) 这意味着当前异常是由`svc`指令引起的，它是系统调用。在这种情况下，我们跳转到 `el0_svc` 标签，否则显示错误消息。
 
 ```
 sc_nr   .req    x25                  // number of system calls
@@ -65,7 +65,7 @@ ni_sys:
     handle_invalid_entry 0, SYSCALL_ERROR
 ```
 
-`el0_svc` first loads the address of the syscall table in the `stbl` (it is just an alias to the `x27` register.) and syscall number in the `scno` variable. Then interrupts are enabled and syscall number is compared to the total number of syscalls in the system — if it is greater or equal an error message is shown. If syscall number falls within the required range, it is used as an index in the syscall table array to obtain a pointer to the syscall handler. Next, the handler is executed and after it finishes `ret_from_syscall` is called. Note, that we don't touch here registers `x0` – `x7` — they are transparently passed to the handler.
+首先，`el0_svc`将系统调用表的地址加载到`stbl`中（它只是`x27`寄存器的别名。），将系统调用号加载到`scno`变量中。然后启用中断，并将系统调用数与系统中系统调用的总数进行比较-如果大于或等于，则会显示一条错误消息。如果`syscall`编号在要求的范围内，它将用作`syscall`表数组中的索引，以获得指向`syscall`处理程序的指针。接下来，执行处理程序，并在完成后调用`ret_from_syscall`。注意，这里我们不要触摸寄存器 `x0` – `x7` – 它们被透明地传递给处理程序。
 
 ```
 ret_from_syscall:
@@ -73,11 +73,12 @@ ret_from_syscall:
     str   x0, [sp, #S_X0]             // returned x0
     kernel_exit 0
 ```
-`ret_from_syscall` first disables interrupts. Then it saves the value of `x0` register on the stack. This is required because `kernel_exit` will restore all general purpose registers from their saved values, but `x0` now contains return value of the syscall handler and we want this value to be passed to the user code. Finally `kernel_exit` is called, which returns to the user code.
 
-### Switching between EL0 and EL1
+`ret_from_syscall`首先禁用中断。然后将x0寄存器的值保存在堆栈中。这是必需的，因为`kernel_exit`将从其保存的值中恢复所有通用寄存器，但是 `x0` 现在包含`syscall` 处理程序的返回值，我们希望将此值传递给用户代码。最后，`kernel_exit`被调用，返回到用户代码。
 
-If you read previous lessons carefully you might notice a change in the `kernel_entry` and `kernel_exit` macros: now both of them accepts an additional argument. This argument indicates which exception level an exception is taken from. The information about the originating exception level is required to properly save/restore stack pointer. Here are the two relevant parts from the `kernel_entry` and `kernel_exit` macros.
+### 在EL0和EL1之间切换
+
+如果您仔细阅读了以前的课程，您可能会注意到`kernel_entry`和`kernel_exit`宏中的变化：现在它们都接受一个附加参数。此参数指示从哪个异常级别获取异常。正确保存/恢复堆栈指针需要有关原始异常级别的信息。这是来自`kernel_entry`和`kernel_exit`宏的两个相关部分。
 
 ```
     .if    \el == 0
@@ -93,19 +94,19 @@ If you read previous lessons carefully you might notice a change in the `kernel_
     .endif /* \el == 0 */
 ```
 
-We are using 2 distinct stack pointers for EL0 and EL1, that's why right after an exception is taken from EL0 the stack pointer is overwritten. The original stack pointer can be found in the `sp_el0` register. The value of this register must be stored and restored before and after taking an exception, even if we don't touch `sp_el0` in the exception handler. If you don't do this you will end up having wrong value in the `sp` register after a context switch.
+我们为`EL0`和`EL1`使用了2个不同的堆栈指针，这就是为什么从`EL0`提取异常后堆栈指针会被覆盖的原因。原始堆栈指针可在 `sp_el0` 寄存器中找到。即使在异常处理程序中不触摸`sp_el0`，也必须在发生异常之前和之后存储并恢复该寄存器的值。如果不这样做，在上下文切换之后，最终将在`sp`寄存器中得到错误的值。
 
-You may also ask why don't we restore the value of the `sp` register in the case when an exception was taken from EL1? That is because we are reusing the same kernel stack for the exception handler. Even if a context switch happens during an exception processing, by the time of `kernel_exit`, `sp` will be already switched by the `cpu_switch_to` function. (By the way, in Linux the behavior is different because Linux uses a different stack for interrupt handlers.)
+您还可能会问，如果从EL1中获取异常，为什么我们不恢复`sp`寄存器的值呢？那是因为我们正在为异常处理程序重用相同的内核堆栈。即使在异常处理过程中发生上下文切换，在`kernel_exit`时，`sp`也已被`cpu_switch_to`函数切换。 （顺便说一句，在Linux中，行为是不同的，因为`Linux`使用不同的堆栈作为中断处理程序。）
 
-It is also worth noticing that we don't need to explicitly specify to which exception level we need to return before the `eret` instruction. This is because this information is encoded in the `spsr_el1` register, so we always return to the level from which the exception was taken.
+还值得注意的是，我们不需要在`eret`指令之前明确指定需要返回的异常级别。这是因为此信息是在`spsr_el1`寄存器中编码的，因此我们总是返回到发生异常的级别。
 
-### Moving a task to user mode
+### 将任务移至用户模式
 
-Before any syscall can take place, we obviously need to have a task running in user mode. There are 2 possibilities how new user tasks can be created: either a kernel thread will be moved to user mode, or a user task can fork itself to create a new user task. In this section, we will explore the first possibility.
+在进行任何系统调用之前，我们显然需要有一个在用户模式下运行的任务。有两种创建新用户任务的可能性：将内核线程移至用户模式，或者用户任务可以派生自身来创建新的用户任务。在本节中，我们将探讨第一种可能性。
 
-The function that actually does the job is called [move_to_user_mode](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/fork.c#Li47), but before we will look into it, let's first examine how this function is used. In order to do so, you need to first open [kernel.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/kernel.c)  file. Let me copy the relevant lines here.
+实际完成工作的功能称为 [move_to_user_mode](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/fork.c#Li47), 但是在研究它之前，让我们先检查一下如何使用此函数。为此，您需要先打开 [kernel.c](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/kernel.c)  文件. 让我在这里复制相关行。
 
-```
+```cpp
     int res = copy_process(PF_KTHREAD, (unsigned long)&kernel_process, 0, 0);
     if (res < 0) {
         printf("error while starting kernel process");
@@ -113,9 +114,9 @@ The function that actually does the job is called [move_to_user_mode](https://gi
     }
 ```
 
-First, in the `kernel_main` function we create a new kernel thread. We do this in the same way as we did it in the previous lesson. After the scheduler runs the newly created task,  `kernel_process` function will be executed in kernel mode.
+首先，在`kernel_main`函数中，我们创建一个新的内核线程。我们这样做的方式与上一课相同。调度程序运行新创建的任务后，将在内核模式下执行`kernel_process`函数。
 
-```
+```cpp
 void kernel_process(){
     printf("Kernel process started. EL %d\r\n", get_el());
     int err = move_to_user_mode((unsigned long)&user_process);
@@ -125,9 +126,9 @@ void kernel_process(){
 }
 ```
 
-`kernel_process` then prints status message and calls `move_to_user_mode`, passing a pointer to the `user_process` as the first argument. Now let's see what `move_to_user_mode` function is doing.
+然后，`kernel_process`打印状态消息并调用`move_to_user_mode`，将指向`user_process`的指针作为第一个参数。现在，让我们看看`move_to_user_mode`函数正在做什么。
 
-```
+```cpp
 int move_to_user_mode(unsigned long pc)
 {
     struct pt_regs *regs = task_pt_regs(current);
@@ -144,15 +145,15 @@ int move_to_user_mode(unsigned long pc)
 }
 ```
 
-Right now we are in the middle of execution of a kernel thread that was created by forking from the init task. In the previous lesson we've discussed the forking process, and we've seen that a small area (`pt_regs` area) was reserved at the top of the stack of the newly created task. This is the first time we are going to use this area: we will save manually prepared processor state there. This state will have exactly the same format as `kernel_exit` macro expects and its structure is described by the [pt_regs](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/fork.h#L21) struct.
+现在，我们处于执行从init任务派生的内核线程的过程中。在上一课中，我们讨论了分叉过程，并且看到在新创建的任务堆栈的顶部保留了一个小区域（ `pt_regs`区域）。这是我们第一次使用此区域：我们将在此处保存手动准备的处理器状态。 该状态将具有与`kernel_exit`宏期望的格式完全相同的格式，并且其结构由 [pt_regs](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/fork.h#L21) 结构组成.
 
-The following fields of the `pt_regs` struct are initialized in the `move_to_user_mode` function.
+`pt_regs`结构的以下字段在`move_to_user_mode`函数中初始化。
 
-* `pc` It now points to the function that needs to be executed in the user mode. `kernel_exit`  will copy `pc` to the `elr_el1` register, thus making sure that we will return to the `pc` address after performing exception return.
-* `pstate` This field will be copied to `spsr_el1` by the `kernel_exit` and becomes the processor state after exception return is completed. [PSR_MODE_EL0t](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/fork.h#L9) constant, which is copied to the `pstate` field, is prepared in such a way that exception return will be made to EL0 level. We already did the same trick in the lesson 2 when switching from EL3 to EL1.
-* `stack` `move_to_user_mode`  allocates a new page for the user stack and sets `sp` field to point to the top of this page.
+* `pc` 现在，它指向需要在用户模式下执行的功能。 `kernel_exit`将把`pc`复制到`elr_el1`寄存器中，从而确保在执行异常返回后我们将返回到`pc`地址。
+* `pstate` 该字段将由`kernel_exit`复制到`spsr_el1`，并在异常返回完成后成为处理器状态。 [PSR_MODE_EL0t](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/include/fork.h#L9) 常量, 复制到 `pstate` 字段中的代码的方式是将异常返回到`EL0`级别。从`EL3`切换到`EL1`时，我们已经在第2课中做了相同的技巧。
+* `stack` `move_to_user_mode`  为用户堆栈分配一个新页面，并将 `sp` 字段设置为指向该页面的顶部。
 
-`task_pt_regs` function is used to calculate the location of the `pt_regs` area. Because of the way we initialized the current kernel thread, we are sure that after it finished `sp` will point right before the `pt_regs` area. This happens in the middle of the [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/entry.S#L188) function.
+`task_pt_regs` 函数用于计算 `pt_regs` 区域的位置。由于我们初始化当前内核线程的方式，我们确保在完成后，`sp`会指向`pt_regs`区域之前。这发生在 [ret_from_fork](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/entry.S#L188) 函数中.
 
 ```
 .globl ret_from_fork
@@ -166,11 +167,11 @@ ret_to_user:
     kernel_exit 0
 ```
 
-As you might notice `ret_from_fork` has been updated. Now, after a kernel thread finishes, the execution goes to the `ret_to_user` label, here we disable interrupts and perform normal exception return, using previously prepared processor state.
+您可能会注意到`ret_from_fork`已更新。现在，在内核线程完成之后，执行转到 `ret_to_user` 标签，此处我们使用先前准备的处理器状态来禁用中断并执行正常的异常返回。
 
-### Forking user processes
+### Forking 用户进程
 
-Now let's go back to the `kernel.c` file. As we've seen in the previous section, after `kernel_process` finishes, [user_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/kernel.c#L22) function will be executed in the user mode. This function calls `clone` system call 2 times in order to execute [user_process1](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/kernel.c#L10) function in 2 parallel threads. `clone` system call requires that the location of a new user stack will be passed to it, we also need to call `malloc` syscall in order to allocate 2 new memory pages. Let's now take a look at what the `clone` syscall wrapping function looks like. You can find it [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.S#L22).
+现在让我们回到`kernel.c`文件。如上一节所述，`kernel_process`完成之后, [user_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/kernel.c#L22) 函数将在用户模式下执行. 该函数调用`clone`系统调用两次以执行 [user_process1](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/kernel.c#L10) 在2个并行线程中起作用。 `clone`系统调用要求将新的用户堆栈的位置传递给它，我们还需要调用`malloc` syscall以便分配2个新的内存页。现在让我们看一下`clone` syscall包装函数的外观。 你可以在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.S#L22) 找到它.
 
 ```
 .globl call_sys_clone
@@ -201,20 +202,20 @@ thread_start:
     svc    0x0
 ```
 
-In the design of the `clone` syscall wrapping function, I tried to emulate the behavior of the [coresponding function](https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/unix/sysv/linux/aarch64/clone.S;h=e0653048259dd9a3d3eb3103ec2ae86acb43ef48;hb=HEAD#l35) from the `glibc` library. This function does the following.
+在 `clone` 系统调用包装函数的设计中，我试图模拟 [coresponding function](https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/unix/sysv/linux/aarch64/clone.S;h=e0653048259dd9a3d3eb3103ec2ae86acb43ef48;hb=HEAD#l35) 从`glibc`库。此功能执行以下操作。
 
-1. Saves registers `x0` – `x3`, those registers contain parameters of the syscall and later will be overwritten by the syscall handler.
-1. Calls syscall handler.
-1. Checks return value of the syscall handler: if it is `0`, we are executing inside of the newly created thread. In this case, execution goes to `thread_start` label.
-1. If the return value is non-zero, then it is the PID of the new task. This means that we return here right after the syscall finishes and we are executing inside the original thread — just return to the caller in this case.
-1. The function, originally passed as the first argument, is called in a new thread.
-1. After the function finishes, `exit` syscall is performed — it never returns.
+1. 保存寄存器 `x0`-`x3`，这些寄存器包含`syscall`的参数，稍后将被`syscall`处理程序覆盖。
+1. 调用`syscall`处理程序。
+1. 检查`syscall`处理程序的返回值：如果它是`0`，我们正在新创建的线程内执行。在这种情况下，执行将转到 `thread_start` 标签。
+1. 如果返回值不为零，则它是新任务的`PID`。这意味着，我们的系统调用完成后回到这里，在我们原来的线程内部执行 - 只返回在这种情况下的调用者。
+1. 最初作为第一个参数传递的函数在新线程中调用。
+1. 函数完成后，将执行`exit`系统调用 - 它永远不会返回。
 
-As you can see, the semantics of the clone wrapper function and clone syscall differ: The former accepts a pointer to the function to be executed as an argument and the later return to the caller twice: first time in the original task and second time in the cloned task.
+如您所见，克隆包装函数和克隆syscall的语义不同：前者接受指向要执行的函数的指针作为参数，而后者则两次返回调用者：第一次是在原始任务中，第二次是在克隆的任务。
 
-Clone syscall handler can be found [here](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.c#L11). It is very simple and it just calls already familiar `copy_process` function. This function, however, has been modified since the last lesson — now it supports cloning user threads as well as kernel threads. The source of the function is listed below.
+可以找到克隆的系统调用处理程序在 [这里](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sys.c#L11). 这非常简单，它只调用已经熟悉的`copy_process`函数。但是，此功能自上一课以来已被修改-现在它支持克隆用户线程和内核线程。下面列出了该函数的来源。
 
-```
+```cpp
 int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg, unsigned long stack)
 {
     preempt_disable();
@@ -254,9 +255,9 @@ int copy_process(unsigned long clone_flags, unsigned long fn, unsigned long arg,
 }
 ```
 
-In case, when we are creating a new kernel thread, the function behaves exactly the same, as was described in the previous lesson. In the other case, when we are cloning a user thread, this part of the code is executed.
+以防万一，当我们创建一个新的内核线程时，该函数的行为完全相同，如上一课中所述。在另一种情况下，当我们克隆用户线程时，将执行这部分代码。
 
-```
+```cpp
         struct pt_regs * cur_regs = task_pt_regs(current);
         *childregs = *cur_regs;
         childregs->regs[0] = 0;
@@ -264,17 +265,17 @@ In case, when we are creating a new kernel thread, the function behaves exactly 
         p->stack = stack;
 ```
 
-The first thing that we are doing here is getting access to the processor state, saved by the `kernel_entry` macro. It is not obvious, however, why we can use the same `task_pt_regs` function, which just returns `pt_regs` area at the top of the kernel stack. Why isn't it possible that `pt_regs` will be stored somewhere else on the stack? The answer is that this code can be executed only after `clone` syscall was called. At the time when syscall was triggered the current kernel stack was empty (we left it empty after moving to the user mode). That's why `pt_regs` will always be stored at the top of the kernel stack. This rule will be kept for all subsequent syscalls because each of them will leave kernel stack empty before returning to the user mode.
+我们在这里要做的第一件事是访问处理器状态，该状态由 `kernel_entry` 宏保存。但是，为什么我们可以使用相同的 `task_pt_regs` 函数，该函数仅返回内核堆栈顶部的 `pt_regs` 区域，这并不明显。为什么 `pt_regs` 不可能存储在堆栈中的其他位置？答案是只有在调用`clone` syscall后才能执行此代码。在触发 `syscall` 时，当前的内核堆栈为空（进入用户模式后我们将其保留为空）。这就是为什么 `pt_regs` 将始终存储在内核堆栈的顶部。对于所有后续的系统调用，将保留该规则，因为它们中的每一个在返回用户模式之前都会使内核堆栈为空。
 
-In the second line current processor state is copied to the new task's state. `x0` in the new state is set to `0`, because `x0` will be interpreted by the caller as a return value of the syscall. We've just seen how clone wrapper function uses this value to determine whether we are still executing as a part of the original thread or a new one.
+在第二行中，当前处理器状态被复制到新任务的状态。新状态下的`x0`设置为`0`，因为调用者会将`x0`解释为`syscall`的返回值。我们已经看到克隆包装器函数如何使用此值来确定我们是否仍在执行原始线程的一部分还是新线程。
 
-Next `sp` for the new task is set to point to the top of the new user stack page. We also save the pointer to the stack page in order to do a cleanup after the task finishes.
+新任务的下一个 `sp` 设置为指向新用户堆栈页面的顶部。我们还将指针保存到堆栈页面，以便在任务完成后进行清理。
 
-### Exiting a task
+### 退出任务
 
-After each user tasks finishes it should call `exit` syscall (In the current implementation `exit` is called implicitly by the `clone` wrapper function.).  `exit` syscall then calls [exit_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sched.c) function, which is responsible for deactivating a task. The function is listed below.
+每个用户任务完成后，应调用 `exit` 系统调用（在当前实现中，`clone` 包装器函数会隐式调用 `exit`）。  `exit` `syscall`然后调用 [exit_process](https://github.com/s-matyukevich/raspberry-pi-os/blob/master/src/lesson05/src/sched.c) 函数, 负责停用任务。该功能在下面列出。
 
-```
+```cpp
 void exit_process(){
     preempt_disable();
     for (int i = 0; i < NR_TASKS; i++){
@@ -291,18 +292,18 @@ void exit_process(){
 }
 ```
 
-Following Linux convention, we are not deleting the task at once but set its state to `TASK_ZOMBIE` instead. This prevents the task from being selected and executed by the scheduler. In Linux such approach is used to allow parent process to query information about the child even after it finishes.
+按照Linux约定，我们不会立即删除任务，而是将其状态设置为`TASK_ZOMBIE`。这样可以防止调度程序选择和执行任务。在Linux中，这种方法用于允许父进程即使在子进程完成后也可以查询有关该子进程的信息。
 
-`exit_process` also deletes now unnecessary user stack and calls `schedule`. After `schedule` is called new task will be selected, that's why this system call never returns.
+`exit_process`现在也删除了不必要的用户堆栈并调用`schedule`。在调用`计划`后，将选择新任务，这就是该系统调用永不返回的原因。
 
-### Conclusion
+### 结论
 
-Now that the RPi OS can manage user tasks, we become much closer to the full process isolation. But one important step is still missing: all user tasks share the same physical memory and can easily read one another's data. In the next lesson, we are going to introduce virtual memory and fix this issue.
+既然RPi OS可以管理用户任务，那么我们将更接近于完全的流程隔离。但是仍然缺少一个重要步骤：所有用户任务共享相同的物理内存，并且可以轻松读取彼此的数据。在下一课中，我们将介绍虚拟内存并解决此问题。
 
-##### Previous Page
+##### 上一页
 
-4.5 [Process scheduler: Exercises](../../docs/lesson04/exercises.md)
+4.5 [进程计划程序：练习](../../docs/lesson04/exercises.md)
 
-##### Next Page
+##### 下一页
 
-5.2 [User processes and system calls: Linux](../../docs/lesson05/linux.md)
+5.2 [用户进程和系统调用：Linux](../../docs/lesson05/linux.md)
